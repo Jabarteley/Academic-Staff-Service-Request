@@ -1,0 +1,585 @@
+1. Project overview
+
+Name: Academic Staff Service Request Portal — Federal University Wukari
+Purpose: Replace the manual/semi-digital process with a centralized, secure, auditable, role-based web portal to submit, route, approve, track, notify, and report on staff requests (leave, training, conference, resource requisition, etc.). (Based on your document.) 
+
+chp 3_091417
+
+2. Stakeholders
+
+Academic staff (requestors)
+
+Heads of Department (HODs)
+
+Faculty Deans (where applicable)
+
+Registrar (final approver for relevant requests)
+
+Departmental/Admin Officers (review/approve)
+
+System Administrator / ICT Support
+
+University Management (report consumers)
+
+Auditors / Compliance Officers
+
+3. Scope (what the system will do)
+
+In-scope:
+
+Authentication & role-based access control (RBAC)
+
+Request creation, submission, routing, approval, rejection, modification
+
+Multi-stage, configurable approval workflows (HOD → Dean → Registrar, etc.)
+
+Request tracking and timeline/audit trail
+
+Document/attachment upload and secure storage
+
+Notifications (in-app, email, optional SMS)
+
+Dashboard views & role-specific interfaces
+
+Reporting & analytics (pre-defined and ad-hoc)
+
+Audit logging & forensic trails
+
+Admin user management & configuration
+
+Data export/import and backups
+
+Out-of-scope (unless extended later):
+
+Payroll integration (unless required)
+
+External HR system write-back (can be added in future)
+
+Complex biometric authentication (not part of MVP)
+
+4. Assumptions & constraints
+
+University provides SMTP credentials (or a transactional email service) and internet connectivity.
+
+Users will access via modern browsers (Chrome, Firefox, Edge).
+
+Primary authentication uses university staff numbers / email; new staff accounts are initially created by admin (per your project needs).
+
+MERN stack is used (MongoDB, Express, React, Node.js) — chosen for scalability and community support. 
+
+chp 3_091417
+
+5. Terminology / glossary (brief)
+
+Request: a single submission (leave, resource, conference).
+
+Requestor: user who creates the request.
+
+Officer: any admin user assigned to review/approve.
+
+Workflow: ordered approval steps a request must pass.
+
+6. Actors & roles — responsibilities and capabilities
+
+Academic Staff (Staff Member)
+
+Create/submit requests
+
+Attach supporting documents
+
+View own request history and current status
+
+Respond to modification requests
+
+Receive notifications (in-app & email)
+
+Departmental/Admin Officer (HOD/Officer)
+
+View requests assigned to their department or role
+
+Approve / Reject / Request modification
+
+Add comments and attachments on decisions
+
+Escalate or forward requests (if allowed)
+
+Dean / Registrar
+
+Same as Officer but often higher-level approval
+
+System Administrator
+
+Manage users, roles and permissions
+
+Configure workflows & approval chains
+
+Manage system settings, logs, backups, and integrations
+
+Access full audit logs & system reports
+
+7. Functional requirements (detailed)
+
+Each requirement is numbered for tracking.
+
+7.1 Authentication & Authorization
+
+FR-1. The system shall provide secure login via staff email or staff number and password.
+FR-2. The system shall store password hashes (bcrypt).
+FR-3. The system shall support role-based access control (roles: academic_staff, admin_officer, dean, registrar, sys_admin).
+FR-4. The system shall support session management with token expiration and refresh tokens.
+FR-5. The system shall support account lockout after configurable failed attempts and password reset via secure email link.
+FR-6 (Optional). The system shall support Two-Factor Authentication (TOTP / SMS) if the university wants to enable it.
+
+7.2 User & Account Management
+
+FR-7. Admins can create, update, deactivate, or reactivate user accounts.
+FR-8. The system shall maintain user profile data: staff number, full name, email, department, role(s), phone, join date, status.
+FR-9. The system shall support bulk user upload (CSV) for initial population.
+FR-10. The system shall allow password change by the user.
+
+7.3 Request Creation & Submission
+
+FR-11. The system shall provide request templates for: Leave, Conference/Training, Resource Requisition (equipment, stationery), Special approvals (e.g., study leave), and a Generic Request type.
+FR-12. Each request shall capture mandatory metadata: request_type, subject/title, detailed description, preferred dates (if applicable), priority, department, and any cost estimate (where relevant).
+FR-13. The system shall allow uploading attachments with each request (file types & size limits defined below).
+FR-14. The system shall validate inputs client-side and server-side (field-level validation rules).
+FR-15. The system shall prevent duplicate submissions via a deduplication check (same type/date within X days configurable).
+
+Request-specific fields (examples)
+
+Leave Request: leave_type (annual/sick/compassionate/casual), start_date, end_date, total_working_days, substitute_staff_name (required), reason, supporting_docs.
+
+Conference/Training: event_name, organizer, event_dates, location, cost, approval_needed_from (e.g., Dean), conference_paper (Y/N), travel_request (Y/N).
+
+Resource Requisition: item_list (name, qty, estimated_cost), justification, delivery_location, budget_code.
+
+7.4 Approval Workflow
+
+FR-16. The system shall support configurable multi-stage approval workflows (ordered list of approvers).
+FR-17. Default workflow examples: (a) HOD → Dean → Registrar; (b) HOD → Registrar. Admin can modify per request type or department.
+FR-18. The system shall show the current approver and next approver(s) for each request.
+FR-19. Each approver can Approve, Reject, or Request Modification (send back to requestor).
+FR-20. Approver actions must include comments (mandatory for Rejection).
+FR-21. The system shall support auto-escalation if no action in N days (configurable).
+FR-22. The system shall allow approvers to forward/assign a request to another qualified officer (with justification).
+
+7.5 Request Tracking & Status
+
+FR-23. Requests shall have clear statuses: Draft, Submitted, Pending, Approved, Rejected, Modification Requested, Cancelled, Completed.
+FR-24. The system shall maintain a time-stamped history (timeline) for each request showing events (submitted, assigned, approved, comment added, etc.).
+FR-25. Requestors and authorized officers shall see the timeline and full status.
+FR-26. The system shall provide a dashboard with counts (My Requests, Pending Approvals, Recent Activity).
+
+7.6 Notifications
+
+FR-27. The system shall send in-app notifications for important events (submission, assigned to you, decision made, modification requested).
+FR-28. The system shall send email notifications mirroring in-app notifications. Email templates must be configurable (subject & body).
+FR-29. The system shall support optional SMS notifications (configurable).
+FR-30. Notifications shall include direct links to the request and a short summary.
+FR-31. Notification delivery attempts and status (sent/failed) shall be logged.
+
+7.7 Attachments & File Management
+
+FR-32. The system shall support file uploads (attachments) as part of the request and during approval actions.
+FR-33. Allowed file types: pdf, doc, docx, jpg, jpeg, png, xls, xlsx — admin-configurable.
+FR-34. Maximum file size per attachment: configurable (default 10 MB). Maximum total per request: configurable (default 50 MB).
+FR-35. Files shall be stored securely (cloud or encrypted storage) with access control. Direct public URLs must be time-limited (signed URLs).
+FR-36. The system shall maintain metadata for each attachment (uploader, upload_time, original_filename, storage_key).
+
+7.8 Search, Filters & Pagination
+
+FR-37. The system shall provide search across requests by request_id, title, requester name, department, or keywords in details.
+FR-38. The system shall provide filtering by status, request_type, date range, department, and approver.
+FR-39. Pagination must be supported on all lists with page size configurable.
+
+7.9 Reporting & Analytics
+
+FR-40. Predefined reports:
+
+Number of requests by type and department (daily, monthly, yearly)
+
+Average approval times by stage and department
+
+Pending approvals by officer
+
+Rejection reasons summary
+
+Attachment usage and storage trends
+FR-41. The system shall support ad-hoc report generation with export to CSV and PDF.
+FR-42. Dashboard widgets for managers: recent requests, slowest approvals, top requesters, departmental breakdowns.
+FR-43. Data visualizations (charts) shall be available for key metrics.
+
+7.10 Audit Trail & Logging
+
+FR-44. The system shall record all significant user actions into an audit_trail: login/logout, create/modify/submit request, approvals/rejections, role changes, configured settings changes.
+FR-45. Audit entries must include user_id, timestamp (UTC), action, IP address, and optional metadata.
+FR-46. Audit logs shall be immutable (write-once or append-only) for the duration of retention policy.
+FR-47. Admins shall be able to query audit logs filtered by user, action, date-range.
+
+7.11 Admin & Configuration
+
+FR-48. Admin UI to manage departments, roles, users, approval workflows, notification templates, and system settings (file size limits, lockout thresholds, retention periods).
+FR-49. Admin shall be able to configure workflows per request type and per department.
+FR-50. Admin shall be able to run bulk operations (e.g., bulk approve by admin override, close old requests).
+FR-51. Admin shall be able to run backups and restore from backups (or trigger DB restore via the hosting provider).
+
+7.12 Data Import / Migration
+
+FR-52. Provide capability to import historical requests and users via CSV/JSON with mapping and validation preview.
+FR-53. Imported records must be flagged as “imported” and include an import_log entry (who/when/notes).
+
+7.13 Export & Interoperability
+
+FR-54. Provide REST API endpoints to fetch requests, users, approvals, and reports (read-only, secured with API keys or OAuth).
+FR-55. Support data export for archival (CSV, JSON, PDF).
+FR-56. Provide webhook support or integration adapter to push events to external systems (optional).
+
+7.14 Error Handling & Help
+
+FR-57. Clear user-facing error messages for validation failures and system errors.
+FR-58. Help section / contextual tooltips and a short user guide / FAQ for each role.
+FR-59. Contact ICT support link/form in the UI for assistance with a request.
+
+8. Non-functional requirements (NFRs)
+8.1 Performance
+
+NFR-1. The system shall handle up to X concurrent users (define X with university ICT; suggest 500 concurrent for initial sizing).
+NFR-2. Page load times for core pages (dashboard, request form) shall be < 2s for typical users (assuming standard broadband).
+NFR-3. API responses for simple read requests should be < 300 ms under normal load.
+
+8.2 Scalability
+
+NFR-4. The architecture shall allow horizontal scaling of web servers and API workers.
+NFR-5. Database shall support sharding/replication or managed scaling (e.g., MongoDB Atlas).
+
+8.3 Availability & SLA
+
+NFR-6. Target uptime 99.5% for production (adjustable).
+NFR-7. Maintenance windows must be scheduled and communicated 48 hours in advance.
+
+8.4 Security
+
+NFR-8. All traffic must be over HTTPS/TLS.
+NFR-9. Passwords stored with bcrypt (salt rounds configurable).
+NFR-10. Sensitive data at rest (attachments/backups) must be encrypted.
+NFR-11. RBAC enforced server-side on all endpoints/resources.
+NFR-12. Rate limiting and brute-force protections on authentication endpoints.
+NFR-13. OWASP Top 10 mitigations: input validation, output encoding, CSRF protection, secure headers (Helmet), etc.
+NFR-14. Regular security audits & penetration testing annually (or after major release).
+
+8.5 Data retention & privacy
+
+NFR-15. Audit logs retained for minimum 5 years (configurable by admin).
+NFR-16. Attachments retained per retention policy (e.g., 7 years for HR documents) — admin-configurable.
+NFR-17. Support data deletion and archival workflows for GDPR-like requests (if applicable), and ensure compliant deletion where law requires.
+
+8.6 Reliability & Disaster Recovery
+
+NFR-18. Daily backups of database and file storage (weekly full snapshots and daily incremental).
+NFR-19. RTO (Recovery Time Objective) and RPO (Recovery Point Objective) defined: e.g., RTO = 4 hours, RPO = 1 hour (adjustable).
+NFR-20. Test DR restore process quarterly.
+
+8.7 Usability & Accessibility
+
+NFR-21. UI should be responsive and mobile-friendly.
+NFR-22. Follow WCAG 2.1 AA accessibility where feasible (keyboard navigation, ARIA attributes, color contrast).
+NFR-23. Provide simple forms with inline validation and helpful error messages.
+
+8.8 Maintainability & Extensibility
+
+NFR-24. Codebase to follow modular architecture and documented API contracts (OpenAPI/Swagger).
+NFR-25. Provide automated tests (unit, integration) and continuous integration pipeline.
+
+9. Data model summary (entities and relationships)
+
+(High-level, no SQL — aligns with your tables in the doc.) 
+
+chp 3_091417
+
+Users: user_id, full_name, email, password_hash, role(s), department_id, status, created_at
+
+Departments: dept_id, dept_name, hod_id
+
+Requests: request_id, user_id, request_type, request_details, date_submitted, status, current_officer_id, attachments, history
+
+Approvals: approval_id, request_id, officer_id, decision, comments, decision_date
+
+Notifications: notification_id, recipient_id, message, data, date_sent, status
+
+AuditTrail: audit_id, user_id, action, timestamp, ip_address, meta
+
+10. UI / UX requirements (pages, screens, fields)
+
+Provide user journeys and field-level specs.
+
+10.1 Common UI elements
+
+Global header with breadcrumbs, user profile dropdown, notifications bell (with unread count)
+
+Left navigation (role-aware): Dashboard, My Requests, New Request, Pending Approvals, Reports (if role permits), Admin (if sys_admin)
+
+Footer with support/contact, privacy, terms
+
+10.2 Pages & forms (minimum)
+
+Login
+
+Fields: staff number/email, password, remember me, forgot password link.
+
+Show last login time, failed login attempts message.
+
+Dashboard (role-aware)
+
+Widgets: My Requests (summary), Pending Approvals, Recent Activity, Quick Links (Create Request), Announcements.
+
+New Request (wizard or single page)
+
+Request Type selector (select template)
+
+Dynamic fields based on type (see Request-specific fields earlier)
+
+Attachments uploader (drag & drop)
+
+Save as Draft / Submit buttons
+
+Preview before Submit
+
+My Requests (list)
+
+Columns: Request ID, Title, Type, Date Submitted, Status, Current Approver, Actions (View/Edit/Cancel)
+
+Filters and search, sorting
+
+Request Detail / Timeline view
+
+Full details, attachments, comments, timeline of events, approve/reject actions (if user is approver)
+
+Approval Page for Officers
+
+Request preview, attachments inline viewer, Approve / Reject / Request Modification buttons, comment box (required on reject), delegate/forward option
+
+Admin Panel
+
+User management (create/edit/deactivate), department management, workflow configuration UI (drag-and-drop ordering of approvers), notification templates, system settings (file size limits), audit logs viewer
+
+Reports Page
+
+Select report type, date range, department filter, generate button, export option (CSV/PDF)
+
+Help / Support
+
+FAQ, contact form, training videos/docs
+
+10.3 Validation & messages
+
+Required fields marked * and validated client & server side.
+
+Friendly success/failure toasts (e.g., “Request #12345 submitted successfully”).
+
+Error codes for API-level failures surfaced in meaningful messages.
+
+11. Workflows — exact step-by-step (examples)
+11.1 Leave Request typical flow
+
+Staff logs in → New Request → selects Leave type → fills dates + substitute staff → attaches docs → submits.
+
+System validates dates & substitute availability (optional check).
+
+Request status becomes Pending; assigned to HOD automatically. Notification sent to HOD and staff.
+
+HOD views, approves or requests modification. If approve → assigned to Dean (if required) or Registrar. If modify → routed back to staff with comments.
+
+Each approval adds an approval record and timestamp. Final approval triggers closure and notification to staff + HR (if integrated).
+
+If no action in N days, system auto-escalates to next approver + notifies Sys Admin.
+
+11.2 Resource Requisition flow
+
+Similar to leave but may include cost/finance approvals and purchase order creation (optional integration with procurement).
+
+12. Notifications & email templates (spec)
+
+Templates: Request Submitted, Assigned to You, Request Approved, Request Rejected, Modification Requested, Request Cancelled, System Announcement.
+
+Template variables: {{request_id}}, {{request_title}}, {{requestor_name}}, {{approver_name}}, {{action_comment}}, {{link_to_request}}.
+
+Admin can edit templates and enable/disable channels.
+
+13. Security details (technical)
+
+Use HTTPS/TLS v1.2+
+
+Password hashing: bcrypt, minimum 12 salt rounds (configurable).
+
+JWT for API tokens: short-lived access token (e.g., 15–60 minutes) + refresh tokens stored server-side (or refresh token rotation).
+
+Role-based middleware on all endpoints (no client-side trusts).
+
+Input validation & sanitization (zod/Joi) — all user inputs validated server-side.
+
+Secure file storage: signed URLs, content-type checks, virus scanning (optional).
+
+Environment secrets stored in secure vault (e.g., environment variables, secret manager).
+
+Error logs should not contain sensitive data.
+
+Periodic vulnerability scanning and patching.
+
+14. Audit & compliance
+
+Audit log entries for: create/update/submit/approve/reject/login/logout/account changes.
+
+Logs immutable; regular exports for external audits.
+
+Provide admin tools for generating compliance reports.
+
+If required by law/regulation (e.g., Nigeria Data Protection Act), implement data subject access request (DSAR) workflow.
+
+15. Backup, retention & disaster recovery
+
+Full DB backup weekly; incremental daily.
+
+Attachments backed up and stored redundantly.
+
+Offsite backups with retention policy.
+
+Documented restore playbook and periodic restore tests.
+
+16. Performance & load planning
+
+Baseline sizing: plan for peak semester start/end with spikes in leave/conference submissions.
+
+Use caching for non-sensitive queries (e.g., department lists).
+
+Implement database indexes for common queries (user_id, status, department, dates).
+
+17. Integration points & APIs
+
+Email SMTP or transactional provider (SendGrid/Mailgun) — required.
+
+Optional: SMS gateway for critical alerts.
+
+Optional: HR/Payroll system API for leave balances and staff records.
+
+REST API endpoints for external reporting systems & integrations. Secure with OAuth2 or API keys + IP allowlisting.
+
+18. Logging, monitoring & alerting
+
+Application logs: structured logs (JSON) to central log service.
+
+Error monitoring: Sentry or equivalent for exceptions.
+
+Infrastructure monitoring: CPU, memory, disk, DB health, queue lengths.
+
+Alerts: critical errors, backup failures, high error rates, high approval latencies.
+
+19. Testing & acceptance criteria
+19.1 Test types
+
+Unit tests: business logic & validation.
+
+Integration tests: API endpoints.
+
+E2E tests: core flows (submit request → approve → notification).
+
+Load/performance tests: simulate the expected concurrent load.
+
+Security tests: authentication, session handling, input sanitization, privilege escalation.
+
+UAT: staged tests with sample staff & officers.
+
+19.2 Acceptance criteria (sample)
+
+A staff can submit each request type successfully, and attachments are retrievable.
+
+An HOD receives the assigned request and can approve/reject with comments.
+
+Notifications delivered in-app and via email within configured timeframe.
+
+Audit trail stores each action with user/IP/timestamp.
+
+Reports generate accurate counts and average approval times for a given month.
+
+Backup restore test successfully restores data to a test environment.
+
+20. Error handling, edge cases & business rules
+
+When a user submits overlapping leave requests, the system warns and requires confirmation.
+
+If approver role is vacant, route to an alternate approver or escalate to Dean/Sys Admin.
+
+Handle file upload interruptions: partial uploads must be retried safely.
+
+Time zone handling: store all timestamps in UTC and display based on user locale/timezone.
+
+Concurrency: simultaneous approvals on same request should be locked or check-and-retry.
+
+21. Data migration & initial population
+
+Provide mapping template (CSV) for user accounts and historical requests.
+
+Validation report on import errors and conflicts.
+
+Flag imported entries and preserve original timestamps where required.
+
+22. Documentation & training
+
+End-user manual for each role (PDF & HTML).
+
+Admin operations manual (backups, restore, user management).
+
+API documentation (OpenAPI/Swagger).
+
+Training plan: 2–3 hands-on sessions, recorded videos, quick-start cheat-sheets.
+
+23. Deployment & environments
+
+Environments: Development, Staging (UAT), Production.
+
+CI/CD pipeline: run tests, build, deploy to staging and production with approvals.
+
+Containerization: docker images for Node app; React as static build served by CDN (optional).
+
+DB: managed MongoDB (Atlas) recommended; set up read-replicas for scalability.
+
+24. Maintenance & support
+
+Define support tiers (L1, L2, L3) and SLAs (e.g., response within 4 hours for critical).
+
+Patch management policy for OS, runtime, and dependencies.
+
+Monthly or quarterly maintenance window for upgrades.
+
+25. Legal & privacy considerations
+
+Determine retention & access policy for HR data and sensitive documents.
+
+Implement data access approvals and consent where required.
+
+If sharing data externally, ensure agreements are in place.
+
+26. Acceptance checklist (final sign-off items)
+
+Functional checklist: all FR items implemented and tested.
+
+NFR checklist: performance, security, availability targets met.
+
+Documentation: user and admin docs available.
+
+UAT: signoff by sample departmental users.
+
+Backup & DR: tested successfully.
+
+Training: staff trained and support processes in place.
+
+27. Optional / future enhancements (roadmap)
+
+Mobile native app (iOS/Android) or PWA offline support.
+
+Integration with biometric single sign-on.
+
+Advanced analytics (predictive trends).
+
+Procurement module (purchase orders, vendor management).
+
+Leave balance integration and auto-calculation. use mongo db I'll provide the connection string, node and express and vite react
