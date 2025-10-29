@@ -45,6 +45,61 @@ import { apiRequest } from "@/lib/queryClient";
 import type { User, Department } from "@shared/schema";
 import { USER_ROLES } from "@shared/schema";
 
+function BulkUploadDialog({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+
+  const bulkCreateMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return apiRequest("POST", "/api/admin/users/bulk", formData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "Bulk upload successful",
+        description: "Users have been created successfully.",
+      });
+      onOpenChange(false);
+      setFile(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload users",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleUpload = () => {
+    if (file) {
+      bulkCreateMutation.mutate(file);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Users</DialogTitle>
+          <DialogDescription>
+            Upload a CSV file with user data. The CSV should have the following columns: staffNumber, email, fullName, password, phone, departmentId, role, status.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <Input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+          <Button onClick={handleUpload} disabled={!file || bulkCreateMutation.isPending}>
+            {bulkCreateMutation.isPending ? "Uploading..." : "Upload"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const userSchema = z.object({
   staffNumber: z.string().min(1, "Staff number is required"),
   email: z.string().email("Invalid email address"),
@@ -61,6 +116,7 @@ export default function Users() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users", { search: searchQuery }],
@@ -137,10 +193,11 @@ export default function Users() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" data-testid="button-bulk-upload">
+          <Button variant="outline" data-testid="button-bulk-upload" onClick={() => setIsBulkUploadOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             Bulk Upload
           </Button>
+          <BulkUploadDialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen} />
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button data-testid="button-new-user">

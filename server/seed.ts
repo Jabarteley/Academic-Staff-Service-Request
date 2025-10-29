@@ -1,9 +1,23 @@
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
 import { USER_ROLES } from "@shared/schema";
+import { Department, User, Request, RequestTimeline, Notification } from "./models";
 
 export async function seedDatabase() {
   try {
+    const isSeeded = await User.findOne({ email: "admin@fuwukari.edu.ng" });
+    if (isSeeded) {
+      console.log("🌱 Database already seeded. Skipping.");
+      return;
+    }
+
+    console.log("🌱 Clearing existing data...");
+    await Department.deleteMany({});
+    await User.deleteMany({});
+    await Request.deleteMany({});
+    await RequestTimeline.deleteMany({});
+    await Notification.deleteMany({});
+
     console.log("🌱 Seeding database...");
 
     // Create departments

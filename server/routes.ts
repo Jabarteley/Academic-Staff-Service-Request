@@ -3,6 +3,47 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
 import { USER_ROLES } from "@shared/schema";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+import multer from "multer";
+import csv from "csv-parser";
+import { Readable } from "stream";
+import { Request as RequestModel, Department as DepartmentModel } from "./models";
+
+// Mock email sending function
+async function sendPasswordResetEmail(email: string, token: string) {
+  const resetLink = `http://localhost:5000/reset-password?token=${token}`;
+  console.log(`
+============== PASSWORD RESET EMAIL ===============`);
+  console.log(`To: ${email}`);
+  console.log(`Subject: Password Reset Request`);
+  console.log(`
+Click the link below to reset your password:`);
+  console.log(resetLink);
+  console.log(`
+This link will expire in 1 hour.`);
+  console.log(`=================================================
+`);
+
+  // In a real application, you would use nodemailer to send the email
+  // const transporter = nodemailer.createTransport({
+  //   host: process.env.SMTP_HOST,
+  //   port: parseInt(process.env.SMTP_PORT || "587"),
+  //   secure: false, // true for 465, false for other ports
+  //   auth: {
+  //     user: process.env.SMTP_USER,
+  //     pass: process.env.SMTP_PASS,
+  //   },
+  // });
+  //
+  // await transporter.sendMail({
+  //   from: `"Academic Staff Portal" <${process.env.SMTP_FROM}>`,
+  //   to: email,
+  //   subject: "Password Reset Request",
+  //   html: `Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.`,
+  // });
+}
+
 
 // Session user type
 declare module 'express-session' {
@@ -35,6 +76,7 @@ async function requireAdmin(req: Request, res: Response, next: Function) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const upload = multer({ storage: multer.memoryStorage() });
   // ==================== Authentication Routes ====================
   
   app.post("/api/auth/login", async (req: Request, res: Response) => {
@@ -138,6 +180,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(userWithoutPassword);
   });
 
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      const user = await storage.getUserByEmail(email);
+
+      if (!user) {
+        // Don't reveal that the user doesn't exist
+        return res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+      }
+
+      // Generate token
+      const token = crypto.randomBytes(32).toString("hex");
+      const expires = new Date(Date.now() + 3600000); // 1 hour
+
+      await storage.setPasswordResetToken(user.id, token, expires);
+
+      // Send email
+      await sendPasswordResetEmail(user.email, token);
+
+      res.json({ message: "If an account with that email exists, a password reset link has been sent." });
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+
+      if (!token || !password) {
+        return res.status(400).json({ message: "Token and password are required" });
+      }
+
+      const user = await storage.getUserByPasswordResetToken(token);
+
+      if (!user) {
+        return res.status(400).json({ message: "Password reset token is invalid or has expired." });
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Update password and clear reset token
+      await storage.updateUser(user.id, { password: hashedPassword });
+      await storage.clearPasswordResetToken(user.id);
+
+      // Log audit event
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'reset_password',
+        resourceType: 'user',
+        resourceId: user.id,
+        ipAddress: req.ip || null,
+      });
+
+      res.json({ message: "Password has been reset successfully." });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ==================== Dashboard Routes ====================
 
   app.get("/api/dashboard/stats", requireAuth, async (req: Request, res: Response) => {
@@ -145,7 +250,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
+      console.log("Dashboard user:", user.id);
       const allRequests = await storage.getRequestsByUser(user.id);
+      console.log("Dashboard requests:", allRequests);
+
       const pendingApprovals = await storage.getPendingApprovals(user.id);
       
       const now = new Date();
@@ -252,7 +360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/requests", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/requests", requireAuth, upload.any(), async (req: Request, res: Response) => {
     try {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
@@ -283,6 +391,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         details: { requestType: newRequest.requestType },
         ipAddress: req.ip || null,
       });
+
+      // Handle attachments
+      if (req.files) {
+        const files = req.files as Express.Multer.File[];
+        for (const file of files) {
+          // TODO: Upload file to a persistent storage (e.g., S3, Google Cloud Storage)
+          const storedFilename = `${crypto.randomBytes(16).toString("hex")}-${file.originalname}`;
+          await storage.createAttachment({
+            requestId: newRequest.id,
+            uploaderId: user.id,
+            originalFilename: file.originalname,
+            storedFilename: storedFilename,
+            fileSize: file.size,
+            mimeType: file.mimetype,
+            storageKey: "local", // This should be the key from the storage service
+          });
+        }
+      }
 
       // TODO: Create notification for approver
       // TODO: Send email notification
@@ -558,29 +684,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/admin/users/bulk", requireAuth, requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded." });
+      }
+
+      const users: any[] = [];
+      const readable = new Readable();
+      readable._read = () => {}; // _read is required but you can noop it
+      readable.push(req.file.buffer);
+      readable.push(null);
+
+      readable
+        .pipe(csv())
+        .on('data', (data) => users.push(data))
+        .on('end', async () => {
+          try {
+            for (const user of users) {
+              const hashedPassword = await bcrypt.hash(user.password, 10);
+              await storage.createUser({ ...user, password: hashedPassword });
+            }
+            res.status(201).json({ message: `${users.length} users created successfully.` });
+          } catch (error: any) {
+            console.error("Bulk create user error:", error);
+            res.status(500).json({ message: "Error processing CSV file." });
+          }
+        });
+    } catch (error: any) {
+      console.error("Bulk upload error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/admin/reports", requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
-      // Mock report data for now
+      const requestsByType = await RequestModel.aggregate([
+        { $group: { _id: "$requestType", count: { $sum: 1 } } },
+        { $project: { type: "$_id", count: 1, _id: 0 } },
+      ]);
+
+      const requestsByStatus = await RequestModel.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+        { $project: { status: "$_id", count: 1, _id: 0 } },
+      ]);
+
+      const requestsByDepartment = await RequestModel.aggregate([
+        { $lookup: { from: "departments", localField: "departmentId", foreignField: "_id", as: "department" } },
+        { $unwind: "$department" },
+        { $group: { _id: "$department.name", count: { $sum: 1 } } },
+        { $project: { department: "$_id", count: 1, _id: 0 } },
+      ]);
+
+      const approvalTimeResult = await RequestModel.aggregate([
+        { $match: { status: "approved", submittedAt: { $ne: null }, completedAt: { $ne: null } } },
+        { $project: { approvalTime: { $subtract: ["$completedAt", "$submittedAt"] } } },
+        { $group: { _id: null, avgApprovalTime: { $avg: "$approvalTime" } } },
+      ]);
+
+      const averageApprovalTimeInMs = approvalTimeResult[0]?.avgApprovalTime || 0;
+      const averageApprovalTime = Math.round(averageApprovalTimeInMs / (1000 * 60 * 60 * 24));
+
       res.json({
-        requestsByType: [
-          { type: 'Leave', count: 45 },
-          { type: 'Conference/Training', count: 23 },
-          { type: 'Resource Requisition', count: 18 },
-          { type: 'Generic', count: 12 },
-        ],
-        requestsByDepartment: [
-          { department: 'Computer Science', count: 32 },
-          { department: 'Mathematics', count: 28 },
-          { department: 'Physics', count: 21 },
-          { department: 'Chemistry', count: 17 },
-        ],
-        requestsByStatus: [
-          { status: 'Approved', count: 58 },
-          { status: 'Pending', count: 25 },
-          { status: 'Rejected', count: 10 },
-          { status: 'Draft', count: 5 },
-        ],
-        averageApprovalTime: 3.5,
+        requestsByType,
+        requestsByDepartment,
+        requestsByStatus,
+        averageApprovalTime,
       });
     } catch (error: any) {
       console.error("Get reports error:", error);

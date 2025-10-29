@@ -1,21 +1,35 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import mongoose from "mongoose";
+import MongoStore from "connect-mongo";
+import dotenv from "dotenv";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { seedDatabase } from "./seed";
 
+dotenv.config();
+
 const app = express();
 
+// MongoDB connection
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  throw new Error("Please define the MONGODB_URI environment variable inside .env");
+}
+
+mongoose.connect(MONGODB_URI).then(() => {
+  log("Connected to MongoDB");
+}).catch(err => {
+  console.error("Failed to connect to MongoDB", err);
+  process.exit(1);
+});
+
 // Session setup
-const MemoryStore = createMemoryStore(session);
 app.use(session({
   secret: process.env.SESSION_SECRET || 'fuwukari-staff-portal-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
-  store: new MemoryStore({
-    checkPeriod: 86400000 // prune expired entries every 24h
-  }),
+  store: MongoStore.create({ mongoUrl: MONGODB_URI }),
   cookie: {
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
@@ -67,12 +81,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Seed database with initial data
-  try {
-    await seedDatabase();
-  } catch (error) {
-    console.error("Failed to seed database:", error);
-  }
 
   const server = await registerRoutes(app);
 
@@ -98,11 +106,22 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
+  const httpServer = server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    log('SIGTERM signal received: closing HTTP server');
+    httpServer.close(() => {
+      log('HTTP server closed');
+      mongoose.connection.close(false).then(() => {
+        log('MongoDB connection closed');
+        process.exit(0);
+      });
+    });
   });
 })();

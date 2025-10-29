@@ -26,10 +26,18 @@ import { useAuth } from "@/lib/auth-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { USER_ROLES } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
 
 export function AppSidebar() {
-  const [location] = useLocation();
-  const { user } = useAuth();
+  const [location, setLocation] = useLocation();
+  const { user, setUser } = useAuth();
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    setLocation("/");
+  };
 
   if (!user) return null;
 
@@ -134,6 +142,10 @@ export function AppSidebar() {
             </div>
           </div>
         </div>
+        <Button variant="outline" className="w-full mt-2" onClick={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" />
+          Logout
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );

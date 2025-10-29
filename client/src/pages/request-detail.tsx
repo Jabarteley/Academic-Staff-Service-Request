@@ -143,10 +143,10 @@ export default function RequestDetail() {
           <div className="flex items-center gap-3 mt-2">
             <Badge
               variant="outline"
-              className={`text-xs ${getStatusColor(request.status)}`}
+              className={`text-xs ${getStatusColor(request.status || '')}`}
               data-testid="badge-status"
             >
-              {request.status.replace(/_/g, ' ')}
+              {request.status && request.status.replace(/_/g, ' ')}
             </Badge>
             <span className="text-sm text-muted-foreground">
               #{request.requestNumber}

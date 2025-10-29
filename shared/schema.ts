@@ -1,6 +1,3 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, boolean, integer } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // User roles enum
@@ -49,228 +46,168 @@ export const LEAVE_TYPES = {
 
 export type LeaveType = typeof LEAVE_TYPES[keyof typeof LEAVE_TYPES];
 
-// Departments table
-export const departments = pgTable("departments", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull().unique(),
-  code: text("code").notNull().unique(),
-  faculty: text("faculty"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+// Base types
+const baseSchema = z.object({
+  id: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
 });
 
-export const insertDepartmentSchema = createInsertSchema(departments).omit({
-  id: true,
-  createdAt: true,
+// Department
+export const departmentSchema = baseSchema.extend({
+  name: z.string(),
+  code: z.string(),
+  faculty: z.string().optional(),
+  hodId: z.string().optional(),
 });
 
+export const insertDepartmentSchema = departmentSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
-export type Department = typeof departments.$inferSelect;
+export type Department = z.infer<typeof departmentSchema>;
 
-// Users table
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  staffNumber: text("staff_number").notNull().unique(),
-  email: text("email").notNull().unique(),
-  password: text("password").notNull(),
-  fullName: text("full_name").notNull(),
-  phone: text("phone"),
-  departmentId: varchar("department_id").references(() => departments.id),
-  role: text("role").notNull(),
-  status: text("status").notNull().default('active'),
-  joinDate: timestamp("join_date").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  lastLogin: timestamp("last_login"),
-  failedLoginAttempts: integer("failed_login_attempts").default(0),
-  accountLockedUntil: timestamp("account_locked_until"),
+// User
+export const userSchema = baseSchema.extend({
+  staffNumber: z.string(),
+  email: z.string(),
+  password: z.string(),
+  fullName: z.string(),
+  phone: z.string().optional(),
+  departmentId: z.string().optional(),
+  role: z.nativeEnum(USER_ROLES),
+  status: z.string(),
+  joinDate: z.date().optional(),
+  lastLogin: z.date().optional(),
+  failedLoginAttempts: z.number().optional(),
+  accountLockedUntil: z.date().optional(),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-  lastLogin: true,
-  failedLoginAttempts: true,
-  accountLockedUntil: true,
-});
-
+export const insertUserSchema = userSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type User = z.infer<typeof userSchema>;
 
-// Requests table
-export const requests = pgTable("requests", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  requestNumber: text("request_number").notNull().unique(),
-  requestType: text("request_type").notNull(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  status: text("status").notNull().default('draft'),
-  priority: text("priority").default('normal'),
-  requestorId: varchar("requestor_id").references(() => users.id).notNull(),
-  departmentId: varchar("department_id").references(() => departments.id),
-  currentApproverId: varchar("current_approver_id").references(() => users.id),
-  workflowStage: integer("workflow_stage").default(0),
+// Request
+export const requestSchema = baseSchema.extend({
+  requestNumber: z.string(),
+  requestType: z.nativeEnum(REQUEST_TYPES),
+  title: z.string(),
+  description: z.string(),
+  status: z.nativeEnum(REQUEST_STATUS),
+  priority: z.string().optional(),
+  requestorId: z.string(),
+  departmentId: z.string().optional(),
+  currentApproverId: z.string().optional(),
+  workflowStage: z.number().optional(),
   
   // Leave request fields
-  leaveType: text("leave_type"),
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
-  totalWorkingDays: integer("total_working_days"),
-  substituteStaffName: text("substitute_staff_name"),
+  leaveType: z.nativeEnum(LEAVE_TYPES).optional(),
+  startDate: z.date().optional(),
+  endDate: z.date().optional(),
+  totalWorkingDays: z.number().optional(),
+  substituteStaffName: z.string().optional(),
   
   // Conference/Training fields
-  eventName: text("event_name"),
-  organizer: text("organizer"),
-  eventDates: text("event_dates"),
-  location: text("location"),
-  estimatedCost: text("estimated_cost"),
-  conferencePaper: boolean("conference_paper"),
-  travelRequest: boolean("travel_request"),
+  eventName: z.string().optional(),
+  organizer: z.string().optional(),
+  eventDates: z.string().optional(),
+  location: z.string().optional(),
+  estimatedCost: z.string().optional(),
+  conferencePaper: z.boolean().optional(),
+  travelRequest: z.boolean().optional(),
   
   // Resource Requisition fields
-  itemList: jsonb("item_list"),
-  justification: text("justification"),
-  deliveryLocation: text("delivery_location"),
-  budgetCode: text("budget_code"),
+  itemList: z.any().optional(),
+  justification: z.string().optional(),
+  deliveryLocation: z.string().optional(),
+  budgetCode: z.string().optional(),
   
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  submittedAt: timestamp("submitted_at"),
-  completedAt: timestamp("completed_at"),
+  submittedAt: z.date().optional(),
+  completedAt: z.date().optional(),
 });
 
-export const insertRequestSchema = createInsertSchema(requests).omit({
-  id: true,
-  requestNumber: true,
-  createdAt: true,
-  updatedAt: true,
-  submittedAt: true,
-  completedAt: true,
-  currentApproverId: true,
-  workflowStage: true,
-});
-
+export const insertRequestSchema = requestSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequest = z.infer<typeof insertRequestSchema>;
-export type Request = typeof requests.$inferSelect;
+export type Request = z.infer<typeof requestSchema>;
 
-// Workflow configurations table
-export const workflowConfigs = pgTable("workflow_configs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  requestType: text("request_type").notNull(),
-  departmentId: varchar("department_id").references(() => departments.id),
-  stages: jsonb("stages").notNull(), // Array of {role: string, order: number, escalationDays?: number}
-  isDefault: boolean("is_default").default(false),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+// WorkflowConfig
+export const workflowConfigSchema = baseSchema.extend({
+  requestType: z.string(),
+  departmentId: z.string().optional(),
+  stages: z.any(),
+  isDefault: z.boolean().optional(),
 });
 
-export const insertWorkflowConfigSchema = createInsertSchema(workflowConfigs).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
+export const insertWorkflowConfigSchema = workflowConfigSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertWorkflowConfig = z.infer<typeof insertWorkflowConfigSchema>;
-export type WorkflowConfig = typeof workflowConfigs.$inferSelect;
+export type WorkflowConfig = z.infer<typeof workflowConfigSchema>;
 
-// Request timeline/history table
-export const requestTimeline = pgTable("request_timeline", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  requestId: varchar("request_id").references(() => requests.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  action: text("action").notNull(),
-  comment: text("comment"),
-  metadata: jsonb("metadata"),
-  ipAddress: text("ip_address"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+// RequestTimeline
+export const requestTimelineSchema = baseSchema.extend({
+  requestId: z.string(),
+  userId: z.string(),
+  action: z.string(),
+  comment: z.string().optional(),
+  metadata: z.any().optional(),
+  ipAddress: z.string().optional(),
 });
 
-export const insertRequestTimelineSchema = createInsertSchema(requestTimeline).omit({
-  id: true,
-  createdAt: true,
-});
-
+export const insertRequestTimelineSchema = requestTimelineSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertRequestTimeline = z.infer<typeof insertRequestTimelineSchema>;
-export type RequestTimeline = typeof requestTimeline.$inferSelect;
+export type RequestTimeline = z.infer<typeof requestTimelineSchema>;
 
-// Attachments table
-export const attachments = pgTable("attachments", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  requestId: varchar("request_id").references(() => requests.id).notNull(),
-  uploaderId: varchar("uploader_id").references(() => users.id).notNull(),
-  originalFilename: text("original_filename").notNull(),
-  storedFilename: text("stored_filename").notNull(),
-  fileSize: integer("file_size").notNull(),
-  mimeType: text("mime_type").notNull(),
-  storageKey: text("storage_key").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+// Attachment
+export const attachmentSchema = baseSchema.extend({
+  requestId: z.string(),
+  uploaderId: z.string(),
+  originalFilename: z.string(),
+  storedFilename: z.string(),
+  fileSize: z.number(),
+  mimeType: z.string(),
+  storageKey: z.string(),
 });
 
-export const insertAttachmentSchema = createInsertSchema(attachments).omit({
-  id: true,
-  createdAt: true,
-});
-
+export const insertAttachmentSchema = attachmentSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
-export type Attachment = typeof attachments.$inferSelect;
+export type Attachment = z.infer<typeof attachmentSchema>;
 
-// Notifications table
-export const notifications = pgTable("notifications", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  requestId: varchar("request_id").references(() => requests.id),
-  type: text("type").notNull(),
-  title: text("title").notNull(),
-  message: text("message").notNull(),
-  isRead: boolean("is_read").default(false),
-  link: text("link"),
-  emailSent: boolean("email_sent").default(false),
-  emailSentAt: timestamp("email_sent_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+// Notification
+export const notificationSchema = baseSchema.extend({
+  userId: z.string(),
+  requestId: z.string().optional(),
+  type: z.string(),
+  title: z.string(),
+  message: z.string(),
+  isRead: z.boolean(),
+  link: z.string().optional(),
+  emailSent: z.boolean(),
+  emailSentAt: z.date().optional(),
 });
 
-export const insertNotificationSchema = createInsertSchema(notifications).omit({
-  id: true,
-  createdAt: true,
-});
-
+export const insertNotificationSchema = notificationSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
-export type Notification = typeof notifications.$inferSelect;
+export type Notification = z.infer<typeof notificationSchema>;
 
-// Audit logs table
-export const auditLogs = pgTable("audit_logs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id),
-  action: text("action").notNull(),
-  resourceType: text("resource_type"),
-  resourceId: text("resource_id"),
-  details: jsonb("details"),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+// AuditLog
+export const auditLogSchema = baseSchema.extend({
+  userId: z.string().optional(),
+  action: z.string(),
+  resourceType: z.string().optional(),
+  resourceId: z.string().optional(),
+  details: z.any().optional(),
+  ipAddress: z.string().optional(),
+  userAgent: z.string().optional(),
 });
 
-export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
-  id: true,
-  createdAt: true,
-});
-
+export const insertAuditLogSchema = auditLogSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
-export type AuditLog = typeof auditLogs.$inferSelect;
+export type AuditLog = z.infer<typeof auditLogSchema>;
 
-// System settings table
-export const systemSettings = pgTable("system_settings", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  key: text("key").notNull().unique(),
-  value: jsonb("value").notNull(),
-  description: text("description"),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+// SystemSetting
+export const systemSettingSchema = baseSchema.extend({
+  key: z.string(),
+  value: z.any(),
+  description: z.string().optional(),
 });
 
-export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({
-  id: true,
-  updatedAt: true,
-});
-
+export const insertSystemSettingSchema = systemSettingSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
-export type SystemSetting = typeof systemSettings.$inferSelect;
+export type SystemSetting = z.infer<typeof systemSettingSchema>;
