@@ -210,6 +210,13 @@ export class MongoStorage implements IStorage {
     return config ? { ...config, id: config._id.toString() } as unknown as WorkflowConfigType : undefined;
   }
 
+  async createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfigType> {
+    const newConfig = new WorkflowConfig(config);
+    await newConfig.save();
+    return { ...newConfig.toObject(), id: newConfig._id.toString() } as unknown as WorkflowConfigType;
+  }
+  createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfig>;
+
   // Audit Logs
   async createAuditLog(log: InsertAuditLog): Promise<AuditLogType> {
     const newLog = new AuditLog(log);

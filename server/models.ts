@@ -12,6 +12,7 @@ const departmentSchema = new Schema({
   code: { type: String, required: true, unique: true },
   faculty: { type: String },
   hodId: { type: Schema.Types.ObjectId, ref: "User" },
+  
 }, { timestamps: true });
 
 export const Department = model("Department", departmentSchema);

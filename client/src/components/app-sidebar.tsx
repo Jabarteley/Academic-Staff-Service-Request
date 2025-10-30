@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { USER_ROLES } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
 
 export function AppSidebar() {
   const [location, setLocation] = useLocation();
@@ -36,6 +37,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
+    queryClient.clear();
     setLocation("/");
   };
 

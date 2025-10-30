@@ -347,7 +347,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check authorization
       const canView = request.requestorId === user.id || 
                      request.currentApproverId === user.id ||
-                     user.role === USER_ROLES.SYS_ADMIN;
+                     user.role === USER_ROLES.SYS_ADMIN ||
+                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
+                     user.role === USER_ROLES.DEAN ||
+                     user.role === USER_ROLES.REGISTRAR;
 
       if (!canView) {
         return res.status(403).json({ message: "Forbidden" });
@@ -365,11 +368,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
+      // Get the department of the requesting user
+      const department = await storage.getDepartment(user.departmentId as string);
+      if (!department) {
+        return res.status(400).json({ message: "User's department not found." });
+      }
+
+      // Get the workflow configuration
+      let workflow = await storage.getWorkflowConfig(req.body.requestType, department.id);
+      if (!workflow) {
+        // Fallback to default workflow if department-specific not found
+        workflow = await storage.getWorkflowConfig(req.body.requestType, undefined);
+      }
+
+      if (!workflow || workflow.stages.length === 0) {
+        return res.status(400).json({ message: "No workflow configured for this request type." });
+      }
+
+      // Determine the first approver
+      let currentApproverId: string | null = null;
+      const firstStage = workflow.stages[0];
+
+      if (firstStage.role === USER_ROLES.ADMIN_OFFICER) {
+        // Assuming HOD is the ADMIN_OFFICER for the department
+        currentApproverId = department.hodId || null;
+      } else {
+        // For other roles, we might need more complex logic to find the user
+        // For now, we'll just set it to null and it will be handled later
+        currentApproverId = null;
+      }
+
+      if (!currentApproverId) {
+        return res.status(400).json({ message: "Could not determine the first approver for this request." });
+      }
+
       const requestData = {
         ...req.body,
         requestorId: user.id,
         status: 'submitted',
         departmentId: user.departmentId,
+        currentApproverId: currentApproverId,
+        workflowStage: 0, // Start at the first stage
       };
 
       const newRequest = await storage.createRequest(requestData);
@@ -439,19 +478,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let newStatus = request.status;
       let timelineAction = '';
+      let updatedCurrentApproverId: string | null = null;
+      let updatedWorkflowStage: number = request.workflowStage || 0;
+      let completedAt: Date | null = null;
+
+      // Get the workflow configuration
+      const requestorDepartment = await storage.getDepartment(request.departmentId as string);
+      let workflow = await storage.getWorkflowConfig(request.requestType, requestorDepartment?.id);
+      if (!workflow) {
+        // Fallback to default workflow if department-specific not found
+        workflow = await storage.getWorkflowConfig(request.requestType, undefined);
+      }
+
+      if (!workflow || workflow.stages.length === 0) {
+        return res.status(400).json({ message: "No workflow configured for this request type." });
+      }
 
       switch (action) {
         case 'approve':
-          newStatus = 'approved';
-          timelineAction = 'Request approved';
+          const nextStageIndex = (request.workflowStage || 0) + 1;
+          if (nextStageIndex < workflow.stages.length) {
+            // Move to next stage
+            const nextStage = workflow.stages[nextStageIndex];
+            updatedWorkflowStage = nextStageIndex;
+
+            // Determine next approver based on role
+            if (nextStage.role === USER_ROLES.ADMIN_OFFICER) {
+              updatedCurrentApproverId = requestorDepartment?.hodId || null;
+            } else if (nextStage.role === USER_ROLES.DEAN) {
+              // Find Dean of the faculty
+              // For now, assuming Dean is a specific user, or can be found by role in a department
+              const deanUser = await storage.getAllUsers(); // This is inefficient, should be a specific query
+              const dean = deanUser.find(u => u.role === USER_ROLES.DEAN);
+              updatedCurrentApproverId = dean?.id || null;
+            } else if (nextStage.role === USER_ROLES.REGISTRAR) {
+              // Find Registrar
+              const registrarUser = await storage.getAllUsers(); // This is inefficient
+              const registrar = registrarUser.find(u => u.role === USER_ROLES.REGISTRAR);
+              updatedCurrentApproverId = registrar?.id || null;
+            } else {
+              updatedCurrentApproverId = null; // No specific approver found for this role
+            }
+
+            newStatus = 'pending'; // Still pending, but with a new approver
+            timelineAction = `Request approved by ${user.fullName}, forwarded to ${nextStage.role}`;
+          } else {
+            // Workflow completed
+            newStatus = 'approved';
+            completedAt = new Date();
+            timelineAction = 'Request fully approved';
+            updatedCurrentApproverId = null;
+          }
           break;
         case 'reject':
           newStatus = 'rejected';
           timelineAction = 'Request rejected';
+          updatedCurrentApproverId = null;
           break;
         case 'request_modification':
           newStatus = 'modification_requested';
           timelineAction = 'Modification requested';
+          updatedCurrentApproverId = null;
           break;
         default:
           return res.status(400).json({ message: "Invalid action" });
@@ -460,7 +547,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update request
       await storage.updateRequest(request.id, {
         status: newStatus,
-        currentApproverId: null, // Clear current approver
+        currentApproverId: updatedCurrentApproverId,
+        workflowStage: updatedWorkflowStage,
+        completedAt: completedAt,
       });
 
       // Add timeline entry
@@ -525,9 +614,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
-      const { search, type } = req.query;
-      
+      console.log("Pending approvals user:", user.id);
       let pendingRequests = await storage.getPendingApprovals(user.id);
+      console.log("Pending approvals:", pendingRequests);
+
+      const { search, type } = req.query; // Extract search and type from query parameters
+      console.log("req.query:", req.query);
+      console.log("search variable:", search);
+      console.log("type variable:", type);
 
       // Apply filters
       if (search) {
@@ -679,7 +773,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password: _, ...userWithoutPassword } = newUser;
       res.status(201).json(userWithoutPassword);
     } catch (error: any) {
-      console.error("Create user error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/admin/users/:id", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await getCurrentUser(req);
+      if (!currentUser) return res.status(401).json({ message: "Unauthorized" });
+
+      const userId = req.params.id;
+      const userData = req.body;
+
+      const updatedUser = await storage.updateUser(userId, userData);
+
+      await storage.createAuditLog({
+        userId: currentUser.id,
+        action: 'update_user',
+        resourceType: 'user',
+        resourceId: userId,
+        ipAddress: req.ip || null,
+      });
+
+      const { password: _, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Update user error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

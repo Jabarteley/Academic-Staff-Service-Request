@@ -59,6 +59,7 @@ export const departmentSchema = baseSchema.extend({
   code: z.string(),
   faculty: z.string().optional(),
   hodId: z.string().optional(),
+  
 });
 
 export const insertDepartmentSchema = departmentSchema.omit({ id: true, createdAt: true, updatedAt: true });
@@ -82,6 +83,7 @@ export const userSchema = baseSchema.extend({
 });
 
 export const insertUserSchema = userSchema.omit({ id: true, createdAt: true, updatedAt: true });
+export const updateUserSchema = insertUserSchema.partial().omit({ password: true, joinDate: true, lastLogin: true, accountLockedUntil: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = z.infer<typeof userSchema>;
 

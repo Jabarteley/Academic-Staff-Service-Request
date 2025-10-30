@@ -5,7 +5,7 @@ import MongoStore from "connect-mongo";
 import dotenv from "dotenv";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { seedDatabase } from "./seed";
+
 
 dotenv.config();
 
