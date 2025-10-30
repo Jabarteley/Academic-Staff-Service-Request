@@ -71,6 +71,16 @@ export class MongoStorage implements IStorage {
     const user = await User.findOne({ role }).lean();
     return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
   }
+  
+  async getUserByRole(role: string): Promise<UserType | undefined> {
+    const user = await User.findOne({ role }).lean();
+    return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
+  }
+  
+  async getUserByRoleAndFaculty(role: string, faculty: string): Promise<UserType | undefined> {
+    const user = await User.findOne({ role, faculty }).lean();
+    return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
+  }
 
   async getUserByPasswordResetToken(token: string): Promise<UserType | undefined> {
     const user = await User.findOne({ 
@@ -114,7 +124,13 @@ export class MongoStorage implements IStorage {
   // Requests
   async getRequest(id: string): Promise<RequestType | undefined> {
     const request = await Request.findById(id).lean();
-    return request ? { ...request, id: request._id.toString() } as unknown as RequestType : undefined;
+    if (!request) return undefined;
+
+    return {
+      ...request,
+      id: request._id.toString(),
+      currentApproverId: request.currentApproverId?.toString(),
+    } as unknown as RequestType;
   }
 
   async getRequestsByUser(userId: string): Promise<RequestType[]> {
@@ -231,8 +247,17 @@ export class MongoStorage implements IStorage {
     await newConfig.save();
     return { ...newConfig.toObject(), id: newConfig._id.toString() } as unknown as WorkflowConfigType;
   }
-  createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfig>;
-
+  
+  async updateWorkflowConfig(id: string, data: Partial<WorkflowConfigType>): Promise<WorkflowConfigType | undefined> {
+    const updatedConfig = await WorkflowConfig.findByIdAndUpdate(id, data, { new: true }).lean();
+    return updatedConfig ? { ...updatedConfig, id: updatedConfig._id.toString() } as unknown as WorkflowConfigType : undefined;
+  }
+  
+  async getAllWorkflowConfigs(): Promise<WorkflowConfigType[]> {
+    const configs = await WorkflowConfig.find().lean();
+    return configs.map(c => ({ ...c, id: c._id.toString() })) as unknown as WorkflowConfigType[];
+  }
+  
   // Audit Logs
   async createAuditLog(log: InsertAuditLog): Promise<AuditLogType> {
     const newLog = new AuditLog(log);

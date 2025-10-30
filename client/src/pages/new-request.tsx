@@ -36,7 +36,7 @@ const baseRequestSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   priority: z.string().default("normal"),
-  departmentId: z.string().optional(),
+  departmentId: z.string().min(1, "Department is required"),
 });
 
 const leaveRequestSchema = baseRequestSchema.extend({
@@ -250,6 +250,38 @@ export default function NewRequest() {
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="departmentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department *</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-department">
+                          <SelectValue placeholder="Select your department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {departments?.map((dept) => (
+                          <SelectItem 
+                            key={dept.id} 
+                            value={dept.id}
+                            data-testid={`department-option-${dept.id}`}
+                          >
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

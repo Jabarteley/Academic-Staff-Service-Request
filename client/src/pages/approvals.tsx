@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,70 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckSquare, Search, Eye, Calendar, Clock, User } from "lucide-react";
+import { CheckSquare, Search, Eye, Calendar, Clock, User, CheckCircle2, XCircle, Edit } from "lucide-react";
 import type { Request } from "@shared/schema";
 import { format, formatDistanceToNow } from "date-fns";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth-context";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Approvals() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [actionRequests, setActionRequests] = useState<Record<string, { action: string; comment: string }>>({});
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: pendingRequests, isLoading } = useQuery<Request[]>({
     queryKey: ["/api/approvals/pending", { search: searchQuery, type: typeFilter }],
   });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ requestId, action, comment }: { requestId: string; action: string; comment: string }) => {
+      return apiRequest("POST", `/api/requests/${requestId}/action`, { action, comment });
+    },
+    onSuccess: (response: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approvals/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({
+        title: "Action completed",
+        description: response.message || "The request has been updated.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to process action",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAction = (requestId: string, action: string) => {
+    const actionData = actionRequests[requestId];
+    
+    if (!actionData) return;
+    
+    if ((action === "reject" || action === "request_modification") && (!actionData.comment || actionData.comment.trim() === "")) {
+      toast({
+        title: "Comment required",
+        description: "Please provide a comment for this action",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    approveMutation.mutate({ requestId, action: actionData.action, comment: actionData.comment });
+  };
+
+  const updateActionRequest = (requestId: string, action: string, comment: string) => {
+    setActionRequests(prev => ({
+      ...prev,
+      [requestId]: { action, comment }
+    }));
+  };
 
   const getTypeLabel = (type: string) => {
     return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -40,6 +93,10 @@ export default function Approvals() {
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400';
     }
+  };
+
+  const canApprove = (request: Request) => {
+    return user && request.currentApproverId === user.id;
   };
 
   return (
@@ -86,7 +143,7 @@ export default function Approvals() {
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-32" />
+            <Skeleton key={i} className="h-48" />
           ))}
         </div>
       ) : pendingRequests && pendingRequests.length > 0 ? (
@@ -94,7 +151,7 @@ export default function Approvals() {
           {pendingRequests.map((request) => (
             <Card key={request.id} className="hover-elevate" data-testid={`card-approval-${request.id}`}>
               <CardContent className="p-6">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col lg:flex-row gap-6">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2 flex-wrap">
                       <h3 className="font-semibold text-base">
@@ -132,12 +189,72 @@ export default function Approvals() {
                       </div>
                     </div>
                   </div>
-                  <Link href={`/requests/${request.id}`}>
-                    <Button data-testid={`button-review-${request.id}`}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      Review
-                    </Button>
-                  </Link>
+                  <div className="space-y-4 min-w-fit">
+                    <Link href={`/requests/${request.id}`}>
+                      <Button variant="outline" data-testid={`button-review-${request.id}`}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View Details
+                      </Button>
+                    </Link>
+                    
+                    {canApprove(request) && (
+                      <div className="space-y-3 border-t pt-3">
+                        <div>
+                          <Textarea
+                            placeholder="Add your comment here..."
+                            value={actionRequests[request.id]?.comment || ""}
+                            onChange={(e) => updateActionRequest(request.id, actionRequests[request.id]?.action || "", e.target.value)}
+                            className="text-sm"
+                            data-testid={`textarea-approval-comment-${request.id}`}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Required for reject and modification requests
+                          </p>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => updateActionRequest(request.id, "approve", actionRequests[request.id]?.comment || "")}
+                            variant={actionRequests[request.id]?.action === "approve" ? "default" : "outline"}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-approve-${request.id}`}
+                          >
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={actionRequests[request.id]?.action === "reject" ? "destructive" : "outline"}
+                            onClick={() => updateActionRequest(request.id, "reject", actionRequests[request.id]?.comment || "")}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-reject-${request.id}`}
+                          >
+                            <XCircle className="mr-1 h-3 w-3" />
+                            Reject
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={actionRequests[request.id]?.action === "request_modification" ? "secondary" : "outline"}
+                            onClick={() => updateActionRequest(request.id, "request_modification", actionRequests[request.id]?.comment || "")}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-request-modification-${request.id}`}
+                          >
+                            <Edit className="mr-1 h-3 w-3" />
+                            Modify
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleAction(request.id, actionRequests[request.id]?.action || "")}
+                            disabled={!actionRequests[request.id]?.action || approveMutation.isPending}
+                            data-testid={`button-submit-action-${request.id}`}
+                          >
+                            Submit Action
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>

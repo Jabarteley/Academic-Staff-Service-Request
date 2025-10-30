@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
-import { USER_ROLES } from "@shared/schema";
+import { USER_ROLES, REQUEST_TYPES, InsertUser } from "@shared/schema";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import multer from "multer";
@@ -10,7 +10,39 @@ import csv from "csv-parser";
 import { Readable } from "stream";
 import { Request as RequestModel, Department as DepartmentModel } from "./models";
 
-// Mock email sending function
+// Find user by role and faculty
+async function findUserByRoleAndFaculty(role: string, faculty: string) {
+  return await storage.getUserByRoleAndFaculty(role, faculty);
+}
+
+// Find user by role only
+async function findUserByRole(role: string) {
+  return await storage.getUserByRole(role);
+}
+
+// Helper function to determine the next approver based on role and department
+async function determineNextApprover(role: string, department: any): Promise<string | null> {
+  if (!department) return null;
+  
+  switch (role) {
+    case USER_ROLES.ADMIN_OFFICER:
+      // For ADMIN_OFFICER role (like HOD), use department's hodId, or find any ADMIN_OFFICER if not set
+      return department.hodId || (await findUserByRole(USER_ROLES.ADMIN_OFFICER))?.id || null;
+    case USER_ROLES.DEAN:
+      // Find Dean for the faculty
+      return await findUserByRoleAndFaculty(USER_ROLES.DEAN, department.faculty);
+    case USER_ROLES.REGISTRAR:
+      // Find Registrar
+      return await findUserByRole(USER_ROLES.REGISTRAR);
+    case USER_ROLES.SYS_ADMIN:
+      // Find System Administrator
+      return await findUserByRole(USER_ROLES.SYS_ADMIN);
+    default:
+      return null;
+  }
+}
+
+// Mock email sending function for password reset
 async function sendPasswordResetEmail(email: string, token: string) {
   const resetLink = `http://localhost:5000/reset-password?token=${token}`;
   console.log(`
@@ -24,24 +56,27 @@ Click the link below to reset your password:`);
 This link will expire in 1 hour.`);
   console.log(`=================================================
 `);
+}
 
-  // In a real application, you would use nodemailer to send the email
-  // const transporter = nodemailer.createTransport({
-  //   host: process.env.SMTP_HOST,
-  //   port: parseInt(process.env.SMTP_PORT || "587"),
-  //   secure: false, // true for 465, false for other ports
-  //   auth: {
-  //     user: process.env.SMTP_USER,
-  //     pass: process.env.SMTP_PASS,
-  //   },
-  // });
-  //
-  // await transporter.sendMail({
-  //   from: `"Academic Staff Portal" <${process.env.SMTP_FROM}>`,
-  //   to: email,
-  //   subject: "Password Reset Request",
-  //   html: `Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.`,
-  // });
+// Function to send notification emails for request actions
+async function sendRequestActionEmail(user: any, request: any, action: string, comment?: string) {
+  console.log(`
+============== NOTIFICATION EMAIL ===============`);
+  console.log(`To: ${user.email}`);
+  console.log(`Subject: Request ${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Modification Requested'}`);
+  console.log(`
+Your request "${request.title}" has been ${action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'returned for modification'}.
+
+Request ID: ${request.requestNumber}
+Request Type: ${request.requestType}
+Status: ${request.status}
+
+${comment ? `Comment: ${comment}` : ''}
+
+View your request at: http://localhost:5000/requests/${request.id}
+`);
+  console.log(`=================================================
+`);
 }
 
 
@@ -76,6 +111,91 @@ async function requireAdmin(req: Request, res: Response, next: Function) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Function to ensure default workflows exist
+  async function ensureDefaultWorkflows() {
+    // Check for a default 'generic' workflow (without departmentId)
+    let genericWorkflow = await storage.getWorkflowConfig(REQUEST_TYPES.GENERIC, undefined);
+
+    if (!genericWorkflow) {
+      console.log("Creating default 'generic' workflow...");
+      await storage.createWorkflowConfig({
+        requestType: REQUEST_TYPES.GENERIC,
+        isDefault: true,
+        stages: [
+          { role: USER_ROLES.ADMIN_OFFICER, stepName: "Department Head Approval" },
+          { role: USER_ROLES.DEAN, stepName: "Dean's Approval" },
+        ],
+      });
+      console.log("Default 'generic' workflow created.");
+    }
+
+    // Check for a default 'leave' workflow
+    let leaveWorkflow = await storage.getWorkflowConfig(REQUEST_TYPES.LEAVE, undefined);
+    if (!leaveWorkflow) {
+      console.log("Creating default 'leave' workflow...");
+      await storage.createWorkflowConfig({
+        requestType: REQUEST_TYPES.LEAVE,
+        isDefault: true,
+        stages: [
+          { role: USER_ROLES.ADMIN_OFFICER, stepName: "Department Head Approval" },
+          { role: USER_ROLES.DEAN, stepName: "Dean's Approval" },
+        ],
+      });
+      console.log("Default 'leave' workflow created.");
+    }
+
+    // Check for a default 'conference_training' workflow
+    let conferenceWorkflow = await storage.getWorkflowConfig(REQUEST_TYPES.CONFERENCE_TRAINING, undefined);
+    if (!conferenceWorkflow) {
+      console.log("Creating default 'conference_training' workflow...");
+      await storage.createWorkflowConfig({
+        requestType: REQUEST_TYPES.CONFERENCE_TRAINING,
+        isDefault: true,
+        stages: [
+          { role: USER_ROLES.ADMIN_OFFICER, stepName: "Department Head Approval" },
+          { role: USER_ROLES.DEAN, stepName: "Dean's Approval" },
+          { role: USER_ROLES.REGISTRAR, stepName: "Registrar's Approval" },
+        ],
+      });
+      console.log("Default 'conference_training' workflow created.");
+    }
+
+    // Check for a default 'resource_requisition' workflow
+    let resourceWorkflow = await storage.getWorkflowConfig(REQUEST_TYPES.RESOURCE_REQUISITION, undefined);
+    if (!resourceWorkflow) {
+      console.log("Creating default 'resource_requisition' workflow...");
+      await storage.createWorkflowConfig({
+        requestType: REQUEST_TYPES.RESOURCE_REQUISITION,
+        isDefault: true,
+        stages: [
+          { role: USER_ROLES.ADMIN_OFFICER, stepName: "Department Head Approval" },
+          { role: USER_ROLES.SYS_ADMIN, stepName: "System Admin Approval" },
+        ],
+      });
+      console.log("Default 'resource_requisition' workflow created.");
+    }
+
+    // Ensure at least one ADMIN_OFFICER exists for workflow assignment
+    let adminOfficer = await storage.findUserByRole(USER_ROLES.ADMIN_OFFICER);
+    if (!adminOfficer) {
+      console.log("No ADMIN_OFFICER found. Creating a default one...");
+      const hashedPassword = await bcrypt.hash("password123", 10); // Default password
+      const defaultAdminOfficer: InsertUser = {
+        staffNumber: "AO001",
+        email: "admin.officer@example.com",
+        password: hashedPassword,
+        fullName: "Default Admin Officer",
+        role: USER_ROLES.ADMIN_OFFICER,
+        status: "active",
+      };
+      adminOfficer = await storage.createUser(defaultAdminOfficer);
+      console.log(`Default ADMIN_OFFICER created: ${adminOfficer.email}`);
+    }
+  }
+
+  // Call this function when the server starts
+  await ensureDefaultWorkflows();
+
   const upload = multer({ storage: multer.memoryStorage() });
   // ==================== Authentication Routes ====================
   
@@ -365,8 +485,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/requests", requireAuth, upload.any(), async (req: Request, res: Response) => {
     try {
+      console.log("Received request body:", req.body);
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // Validate required fields
+      const { requestType, title, description } = req.body;
+      
+      if (!requestType || !Object.values(REQUEST_TYPES).includes(requestType)) {
+        return res.status(400).json({ message: "Valid request type is required" });
+      }
+      
+      if (!title || title.trim().length === 0) {
+        return res.status(400).json({ message: "Title is required" });
+      }
+      
+      if (!description || description.trim().length === 0) {
+        return res.status(400).json({ message: "Description is required" });
+      }
 
       // Get the department of the requesting user
       const department = await storage.getDepartment(user.departmentId as string);
@@ -375,10 +511,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get the workflow configuration
-      let workflow = await storage.getWorkflowConfig(req.body.requestType, department.id);
+      let workflow = await storage.getWorkflowConfig(requestType, department.id);
       if (!workflow) {
         // Fallback to default workflow if department-specific not found
-        workflow = await storage.getWorkflowConfig(req.body.requestType, undefined);
+        workflow = await storage.getWorkflowConfig(requestType, undefined);
       }
 
       if (!workflow || workflow.stages.length === 0) {
@@ -390,8 +526,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const firstStage = workflow.stages[0];
 
       if (firstStage.role === USER_ROLES.ADMIN_OFFICER) {
-        // Assuming HOD is the ADMIN_OFFICER for the department
+        // First try to get the HOD if set
         currentApproverId = department.hodId || null;
+        
+        // If no HOD is set for the department, try to find any ADMIN_OFFICER
+        if (!currentApproverId) {
+          const adminOfficer = await storage.findUserByRole(firstStage.role);
+          currentApproverId = adminOfficer?.id || null;
+        }
       } else if (firstStage.role === USER_ROLES.DEAN) {
         const deanUser = await storage.findUserByRoleAndFaculty(firstStage.role, department.faculty);
         currentApproverId = deanUser?.id || null;
@@ -399,23 +541,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const registrarUser = await storage.findUserByRole(firstStage.role);
         currentApproverId = registrarUser?.id || null;
       } else {
-        // For other roles, we might need more complex logic to find the user
-        // For now, we'll just set it to null and it will be handled later
-        currentApproverId = null;
+        // For other roles, try to find a user with that role
+        const roleUser = await storage.findUserByRole(firstStage.role);
+        currentApproverId = roleUser?.id || null;
       }
 
       if (!currentApproverId) {
+        console.error("Failed to determine currentApproverId for new request.");
         return res.status(400).json({ message: "Could not determine the first approver for this request." });
       }
+      console.log("Determined currentApproverId for new request:", currentApproverId);
 
+      // Prepare request data with additional validation
       const requestData = {
         ...req.body,
         requestorId: user.id,
-        status: 'submitted',
+        status: 'pending', // Status is pending when it's assigned to an approver
         departmentId: user.departmentId,
         currentApproverId: currentApproverId,
         workflowStage: 0, // Start at the first stage
+        submittedAt: new Date(), // Mark when the request was submitted
       };
+
+      // For leave requests, validate required fields
+      if (requestType === REQUEST_TYPES.LEAVE) {
+        if (!req.body.leaveType || !Object.values(LEAVE_TYPES).includes(req.body.leaveType)) {
+          return res.status(400).json({ message: "Valid leave type is required for leave requests" });
+        }
+        if (!req.body.startDate || !req.body.endDate) {
+          return res.status(400).json({ message: "Start and end dates are required for leave requests" });
+        }
+        if (!req.body.substituteStaffName || req.body.substituteStaffName.trim().length === 0) {
+          return res.status(400).json({ message: "Substitute staff name is required for leave requests" });
+        }
+      }
+
+      // For conference/training requests, validate required fields
+      if (requestType === REQUEST_TYPES.CONFERENCE_TRAINING) {
+        if (!req.body.eventName || req.body.eventName.trim().length === 0) {
+          return res.status(400).json({ message: "Event name is required for conference/training requests" });
+        }
+        if (!req.body.eventDates || req.body.eventDates.trim().length === 0) {
+          return res.status(400).json({ message: "Event dates are required for conference/training requests" });
+        }
+      }
+
+      // For resource requisition requests, validate required fields
+      if (requestType === REQUEST_TYPES.RESOURCE_REQUISITION) {
+        if (!req.body.itemList || !Array.isArray(req.body.itemList) || req.body.itemList.length === 0) {
+          return res.status(400).json({ message: "Item list is required for resource requisition requests" });
+        }
+      }
 
       const newRequest = await storage.createRequest(requestData);
 
@@ -455,8 +631,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // TODO: Create notification for approver
-      // TODO: Send email notification
+      // Create notification for the assigned approver
+      if (currentApproverId) {
+        const approver = await storage.getUser(currentApproverId);
+        if (approver) {
+          await storage.createNotification({
+            userId: currentApproverId,
+            requestId: newRequest.id,
+            type: 'assignment',
+            title: 'New Request Assigned for Review',
+            message: `A new request "${newRequest.title}" has been assigned to you for review.`,
+            link: `/requests/${newRequest.id}`,
+          });
+
+          // Send email notification to approver
+          await sendRequestActionEmail(approver, newRequest, 'assignment');
+        }
+      }
 
       res.status(201).json(newRequest);
     } catch (error: any) {
@@ -471,16 +662,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
       const { action, comment } = req.body;
+      
+      // Validate action parameter
+      if (!action || !['approve', 'reject', 'request_modification'].includes(action)) {
+        return res.status(400).json({ message: "Action is required and must be one of: approve, reject, request_modification" });
+      }
+      
+      // Validate comment requirement
+      if ((action === 'reject' || action === 'request_modification') && (!comment || comment.trim().length === 0)) {
+        return res.status(400).json({ message: "Comment is required for reject and request modification actions" });
+      }
+
       const request = await storage.getRequest(req.params.id);
       
       if (!request) {
         return res.status(404).json({ message: "Request not found" });
       }
 
-      // Check authorization
+      // Check if request is already completed
+      if (['approved', 'rejected', 'completed'].includes(request.status)) {
+        return res.status(400).json({ message: "Request has already been processed and cannot be modified." });
+      }
+
+      // Check authorization - user must be the current approver
       if (request.currentApproverId !== user.id) {
+        console.log("Unauthorized approval attempt:", { 
+          userId: user.id, 
+          currentApproverId: request.currentApproverId,
+          requestStatus: request.status
+        });
         return res.status(403).json({ message: "Not authorized to approve this request" });
       }
+      
+      console.log("Current approver ID before action:", request.currentApproverId);
 
       let newStatus = request.status;
       let timelineAction = '';
@@ -508,22 +722,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const nextStage = workflow.stages[nextStageIndex];
             updatedWorkflowStage = nextStageIndex;
 
-            // Determine next approver based on role
-            if (nextStage.role === USER_ROLES.ADMIN_OFFICER) {
-              updatedCurrentApproverId = requestorDepartment?.hodId || null;
-            } else if (nextStage.role === USER_ROLES.DEAN) {
-              // Find Dean of the faculty
-              // For now, assuming Dean is a specific user, or can be found by role in a department
-              const deanUser = await storage.getAllUsers(); // This is inefficient, should be a specific query
-              const dean = deanUser.find(u => u.role === USER_ROLES.DEAN);
-              updatedCurrentApproverId = dean?.id || null;
-            } else if (nextStage.role === USER_ROLES.REGISTRAR) {
-              // Find Registrar
-              const registrarUser = await storage.getAllUsers(); // This is inefficient
-              const registrar = registrarUser.find(u => u.role === USER_ROLES.REGISTRAR);
-              updatedCurrentApproverId = registrar?.id || null;
-            } else {
-              updatedCurrentApproverId = null; // No specific approver found for this role
+            // Determine next approver based on role and department
+            updatedCurrentApproverId = await determineNextApprover(nextStage.role, requestorDepartment);
+
+            if (!updatedCurrentApproverId) {
+              return res.status(400).json({ 
+                message: `No approver found for role ${nextStage.role} in ${requestorDepartment?.name || 'department'}.` 
+              });
             }
 
             newStatus = 'pending'; // Still pending, but with a new approver
@@ -540,23 +745,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           newStatus = 'rejected';
           timelineAction = 'Request rejected';
           updatedCurrentApproverId = null;
+          completedAt = new Date();
           break;
         case 'request_modification':
           newStatus = 'modification_requested';
           timelineAction = 'Modification requested';
-          updatedCurrentApproverId = null;
+          updatedCurrentApproverId = request.requestorId; // Return to requestor
           break;
         default:
           return res.status(400).json({ message: "Invalid action" });
       }
 
       // Update request
-      await storage.updateRequest(request.id, {
+      const updatedRequest = await storage.updateRequest(request.id, {
         status: newStatus,
         currentApproverId: updatedCurrentApproverId,
         workflowStage: updatedWorkflowStage,
         completedAt: completedAt,
       });
+
+      if (!updatedRequest) {
+        return res.status(500).json({ message: "Failed to update request status" });
+      }
 
       // Add timeline entry
       await storage.addTimelineEntry({
@@ -573,20 +783,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: `${action}_request`,
         resourceType: 'request',
         resourceId: request.id,
+        details: { 
+          previousStatus: request.status, 
+          newStatus, 
+          action,
+          comment: comment || null
+        },
         ipAddress: req.ip || null,
       });
 
-      // Create notification for requestor
-      await storage.createNotification({
-        userId: request.requestorId,
-        requestId: request.id,
-        type: action,
-        title: `Request ${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Modification Requested'}`,
-        message: `Your request "${request.title}" has been ${action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'returned for modification'}.`,
-        link: `/requests/${request.id}`,
-      });
+      // Get requestor details for notification
+      const requestor = await storage.getUser(request.requestorId);
+      
+      if (requestor) {
+        // Create notification for requestor
+        await storage.createNotification({
+          userId: request.requestorId,
+          requestId: request.id,
+          type: action,
+          title: `Request ${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Modification Requested'}`,
+          message: `Your request "${request.title}" has been ${action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'returned for modification'}.`,
+          link: `/requests/${request.id}`,
+        });
 
-      res.json({ message: "Action completed successfully" });
+        // Send email notification to requestor
+        await sendRequestActionEmail(requestor, request, action, comment);
+      }
+
+      // If action is request_modification, also notify the current approver that it's been returned
+      if (action === 'request_modification') {
+        await storage.createNotification({
+          userId: user.id,
+          requestId: request.id,
+          type: action,
+          title: 'Request Returned for Modification',
+          message: `The request "${request.title}" has been returned to the requestor for modifications.`,
+          link: `/requests/${request.id}`,
+        });
+      }
+
+      res.json({ 
+        message: "Action completed successfully",
+        request: {
+          ...updatedRequest,
+          status: newStatus,
+          currentApproverId: updatedCurrentApproverId,
+          workflowStage: updatedWorkflowStage,
+        }
+      });
     } catch (error: any) {
       console.error("Request action error:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -873,6 +1117,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Get reports error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ==================== Workflow Configuration Routes ====================
+
+  app.get("/api/workflows", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { requestType, departmentId } = req.query;
+      let workflowConfigs;
+      
+      if (requestType) {
+        if (departmentId) {
+          workflowConfigs = await storage.getWorkflowConfig(requestType as string, departmentId as string);
+        } else {
+          workflowConfigs = await storage.getWorkflowConfig(requestType as string, undefined);
+        }
+      } else {
+        workflowConfigs = await storage.getAllWorkflowConfigs();
+      }
+
+      res.json(Array.isArray(workflowConfigs) ? workflowConfigs : [workflowConfigs]);
+    } catch (error: any) {
+      console.error("Get workflow configs error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/workflows", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const workflowConfig = await storage.createWorkflowConfig(req.body);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'create_workflow_config',
+        resourceType: 'workflow_config',
+        resourceId: workflowConfig.id,
+        ipAddress: req.ip || null,
+      });
+
+      res.status(201).json(workflowConfig);
+    } catch (error: any) {
+      console.error("Create workflow config error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/workflows/:id", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const workflowConfig = await storage.updateWorkflowConfig(req.params.id, req.body);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'update_workflow_config',
+        resourceType: 'workflow_config',
+        resourceId: req.params.id,
+        ipAddress: req.ip || null,
+      });
+
+      res.json(workflowConfig);
+    } catch (error: any) {
+      console.error("Update workflow config error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
