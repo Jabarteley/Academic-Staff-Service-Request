@@ -146,7 +146,13 @@ export class MongoStorage implements IStorage {
     };
 
     if (user.role === USER_ROLES.ADMIN_OFFICER || user.role === USER_ROLES.DEAN) {
-      query.$or.push({ departmentId: user.departmentId });
+      // For ADMIN_OFFICER and DEAN roles, also show requests in their department that are pending approval
+      // but exclude requests where they are the current approver (to avoid duplicates)
+      query.$or.push({
+        departmentId: user.departmentId,
+        status: 'pending',
+        currentApproverId: { $ne: user.id }
+      });
     }
 
     const requests = await Request.find(query).lean();

@@ -30,15 +30,27 @@ async function determineNextApprover(role: string, department: any): Promise<str
       return department.hodId || (await findUserByRole(USER_ROLES.ADMIN_OFFICER))?.id || null;
     case USER_ROLES.DEAN:
       // Find Dean for the faculty
-      return await findUserByRoleAndFaculty(USER_ROLES.DEAN, department.faculty);
+      let dean = await findUserByRoleAndFaculty(USER_ROLES.DEAN, department.faculty);
+      if (!dean) {
+        // If no Dean is found for this faculty, try to find any SYS_ADMIN as fallback
+        dean = await findUserByRole(USER_ROLES.SYS_ADMIN);
+      }
+      return dean?.id || null;
     case USER_ROLES.REGISTRAR:
       // Find Registrar
-      return await findUserByRole(USER_ROLES.REGISTRAR);
+      let registrar = await findUserByRole(USER_ROLES.REGISTRAR);
+      if (!registrar) {
+        // If no Registrar is found, try to find any SYS_ADMIN as fallback
+        registrar = await findUserByRole(USER_ROLES.SYS_ADMIN);
+      }
+      return registrar?.id || null;
     case USER_ROLES.SYS_ADMIN:
       // Find System Administrator
       return await findUserByRole(USER_ROLES.SYS_ADMIN);
     default:
-      return null;
+      // For other roles, try to find any SYS_ADMIN as a general fallback
+      const sysAdmin = await findUserByRole(USER_ROLES.SYS_ADMIN);
+      return sysAdmin?.id || null;
   }
 }
 
