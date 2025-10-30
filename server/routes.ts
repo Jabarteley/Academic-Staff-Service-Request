@@ -254,7 +254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allRequests = await storage.getRequestsByUser(user.id);
       console.log("Dashboard requests:", allRequests);
 
-      const pendingApprovals = await storage.getPendingApprovals(user.id);
+      const pendingApprovals = await storage.getPendingApprovals(user);
       
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -392,6 +392,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (firstStage.role === USER_ROLES.ADMIN_OFFICER) {
         // Assuming HOD is the ADMIN_OFFICER for the department
         currentApproverId = department.hodId || null;
+      } else if (firstStage.role === USER_ROLES.DEAN) {
+        const deanUser = await storage.findUserByRoleAndFaculty(firstStage.role, department.faculty);
+        currentApproverId = deanUser?.id || null;
+      } else if (firstStage.role === USER_ROLES.REGISTRAR) {
+        const registrarUser = await storage.findUserByRole(firstStage.role);
+        currentApproverId = registrarUser?.id || null;
       } else {
         // For other roles, we might need more complex logic to find the user
         // For now, we'll just set it to null and it will be handled later
@@ -614,14 +620,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
-      console.log("Pending approvals user:", user.id);
-      let pendingRequests = await storage.getPendingApprovals(user.id);
-      console.log("Pending approvals:", pendingRequests);
+      let pendingRequests = await storage.getPendingApprovals(user);
 
       const { search, type } = req.query; // Extract search and type from query parameters
-      console.log("req.query:", req.query);
-      console.log("search variable:", search);
-      console.log("type variable:", type);
 
       // Apply filters
       if (search) {

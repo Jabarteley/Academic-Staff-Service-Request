@@ -176,7 +176,7 @@ export default function RequestDetail() {
                     <div>
                       <p className="text-muted-foreground mb-1">Request Type</p>
                       <p className="font-medium capitalize">
-                        {request.requestType.replace(/_/g, ' ')}
+                        {request.requestType && request.requestType.replace(/_/g, ' ')}
                       </p>
                     </div>
                     <div>
@@ -490,7 +490,7 @@ export default function RequestDetail() {
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Current Status</p>
                 <Badge className={getStatusColor(request.status)}>
-                  {request.status.replace(/_/g, ' ')}
+                  {request.status && request.status.replace(/_/g, ' ')}
                 </Badge>
               </div>
               {request.workflowStage !== undefined && (

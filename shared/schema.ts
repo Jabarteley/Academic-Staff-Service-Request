@@ -74,6 +74,7 @@ export const userSchema = baseSchema.extend({
   fullName: z.string(),
   phone: z.string().optional(),
   departmentId: z.string().optional(),
+  faculty: z.string().optional(),
   role: z.nativeEnum(USER_ROLES),
   status: z.string(),
   joinDate: z.date().optional(),

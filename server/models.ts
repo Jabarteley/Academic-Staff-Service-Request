@@ -24,6 +24,7 @@ const userSchema = new Schema({
   fullName: { type: String, required: true },
   phone: { type: String },
   departmentId: { type: Schema.Types.ObjectId, ref: "Department" },
+  faculty: { type: String },
   role: { type: String, enum: Object.values(USER_ROLES), required: true },
   status: { type: String, default: "active" },
   joinDate: { type: Date, default: Date.now },

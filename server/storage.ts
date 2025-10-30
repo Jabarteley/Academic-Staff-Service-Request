@@ -18,6 +18,7 @@ import type {
   InsertNotification, 
   InsertAuditLog 
 } from "../shared/schema";
+import { USER_ROLES } from "@shared/schema";
 import { User as UserType, Department as DepartmentType, Request as RequestType, RequestTimeline as RequestTimelineType, Attachment as AttachmentType, Notification as NotificationType, WorkflowConfig as WorkflowConfigType, AuditLog as AuditLogType } from "../shared/schema";
 import mongoose from "mongoose";
 
@@ -64,6 +65,11 @@ export class MongoStorage implements IStorage {
       ],
     }).lean();
     return users.map(u => ({ ...u, id: u._id.toString() })) as unknown as UserType[];
+  }
+
+  async findUserByRole(role: string): Promise<UserType | undefined> {
+    const user = await User.findOne({ role }).lean();
+    return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
   }
 
   async getUserByPasswordResetToken(token: string): Promise<UserType | undefined> {
@@ -116,8 +122,18 @@ export class MongoStorage implements IStorage {
     return requests.map(r => ({ ...r, id: r._id.toString() })) as unknown as RequestType[];
   }
 
-  async getPendingApprovals(userId: string): Promise<RequestType[]> {
-    const requests = await Request.find({ currentApproverId: userId }).lean();
+  async getPendingApprovals(user: UserType): Promise<RequestType[]> {
+    const query: any = {
+      $or: [
+        { currentApproverId: user.id },
+      ]
+    };
+
+    if (user.role === USER_ROLES.ADMIN_OFFICER || user.role === USER_ROLES.DEAN) {
+      query.$or.push({ departmentId: user.departmentId });
+    }
+
+    const requests = await Request.find(query).lean();
     return requests.map(r => ({ ...r, id: r._id.toString() })) as unknown as RequestType[];
   }
 
