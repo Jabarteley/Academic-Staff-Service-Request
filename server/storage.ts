@@ -273,14 +273,63 @@ export class MongoStorage implements IStorage {
 
   async searchAuditLogs(filters: any): Promise<AuditLogType[]> {
     const mongoQuery: any = {};
-    if (filters.userId) {
-      mongoQuery.userId = filters.userId;
+
+    if (filters.search) {
+      const searchRegex = new RegExp(filters.search, 'i');
+      const userIdsFromSearch: mongoose.Types.ObjectId[] = [];
+
+      // Try to find users by fullName matching the search term
+      const matchingUsers = await User.find({ fullName: searchRegex }).select('_id').lean();
+      if (matchingUsers.length > 0) {
+        userIdsFromSearch.push(...matchingUsers.map(user => user._id));
+      }
+
+      // Build $or conditions
+      const orConditions: any[] = [
+        { action: searchRegex },
+        { resourceType: searchRegex },
+        { resourceId: searchRegex },
+        { 'details.comment': searchRegex },
+        { 'details.requestType': searchRegex },
+        { 'details.previousStatus': searchRegex },
+        { 'details.newStatus': searchRegex },
+      ];
+
+      if (userIdsFromSearch.length > 0) {
+        orConditions.push({ userId: { $in: userIdsFromSearch } });
+      }
+
+      // Also allow searching directly by userId if the search term looks like an ObjectId
+      if (mongoose.Types.ObjectId.isValid(filters.search)) {
+        orConditions.push({ userId: new mongoose.Types.ObjectId(filters.search) });
+      }
+
+      mongoQuery.$or = orConditions;
     }
-    if (filters.action) {
-      mongoQuery.action = filters.action;
+
+    if (filters.action && filters.action !== 'all') {
+      if (mongoQuery.$or) {
+        mongoQuery.$and = [ { $or: mongoQuery.$or }, { action: { $regex: filters.action, $options: 'i' } } ];
+        delete mongoQuery.$or;
+      } else {
+        mongoQuery.action = { $regex: filters.action, $options: 'i' };
+      }
     }
-    const logs = await AuditLog.find(mongoQuery).sort({ createdAt: -1 }).lean();
-    return logs.map(l => ({ ...l, id: l._id.toString() })) as unknown as AuditLogType[];
+
+    console.log("MongoDB Query for Audit Logs:", JSON.stringify(mongoQuery, null, 2));
+
+    const logs = await AuditLog.find(mongoQuery)
+      .populate({ path: 'userId', select: 'fullName' })
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    console.log("Raw Audit Logs from DB:", JSON.stringify(logs, null, 2));
+
+    return logs.map(l => ({
+      ...l,
+      id: l._id.toString(),
+      userId: (l.userId as any)?.fullName || l.userId?.toString() || 'System',
+    })) as unknown as AuditLogType[];
   }
 }
 

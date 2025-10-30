@@ -1203,8 +1203,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/audit-logs", requireAuth, requireAdmin, async (req: Request, res: Response) => {
     try {
-      // Return empty array for now - storage doesn't have getAllAuditLogs yet
-      res.json([]);
+      const { search, action } = req.query;
+      const filters: any = {};
+
+      if (search) {
+        filters.search = search as string;
+      }
+      if (action && action !== 'all') {
+        filters.action = action as string;
+      }
+
+      const auditLogs = await storage.searchAuditLogs(filters);
+      res.json(auditLogs);
     } catch (error: any) {
       console.error("Get audit logs error:", error);
       res.status(500).json({ message: "Internal server error" });
