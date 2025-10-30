@@ -11,7 +11,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Download, FileText, TrendingUp } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 interface ReportData {
   requestsByType: Array<{ type: string; count: number }>;
@@ -24,10 +26,36 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState("30");
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const { data: reportData, isLoading } = useQuery<ReportData>({
     queryKey: ["/api/admin/reports", { dateRange }],
   });
+
+  const handleExportPdf = async () => {
+    if (reportRef.current) {
+      const input = reportRef.current;
+      const canvas = await html2canvas(input, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = canvas.height * imgWidth / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      pdf.save("admin_report.pdf");
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -50,7 +78,7 @@ export default function Reports() {
               <SelectItem value="365">Last year</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" data-testid="button-export-report">
+          <Button variant="outline" onClick={handleExportPdf} data-testid="button-export-report">
             <Download className="mr-2 h-4 w-4" />
             Export PDF
           </Button>
@@ -64,7 +92,7 @@ export default function Reports() {
           ))}
         </div>
       ) : (
-        <>
+        <div ref={reportRef} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
@@ -113,7 +141,7 @@ export default function Reports() {
                       labelLine={false}
                       label={(entry) => entry.status}
                       outerRadius={80}
-                      fill="#8884d8"
+                      fill="#8884d8" 
                       dataKey="count"
                     >
                       {reportData?.requestsByStatus.map((entry, index) => (
@@ -144,7 +172,7 @@ export default function Reports() {
               </CardContent>
             </Card>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
