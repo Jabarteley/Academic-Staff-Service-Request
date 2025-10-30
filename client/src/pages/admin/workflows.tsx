@@ -14,70 +14,71 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { USER_ROLES, REQUEST_TYPES } from "../../../../shared/schema";
 
 interface WorkflowStep {
   id: number;
-  name: string;
-  description: string;
+  stepName: string; // Changed from 'name' to 'stepName' to match backend
+  role: string;
 }
 
 interface Workflow {
-  id: string;
-  name: string;
-  type: string;
-  steps: WorkflowStep[];
+  _id: string; // Changed from 'id' to '_id' to match MongoDB
+  requestType: string; // Changed from 'name' to 'requestType'
+  isDefault: boolean; // Use isDefault directly from backend
+  stages: WorkflowStep[]; // Changed from 'steps' to 'stages'
 }
 
-export default function Workflows() {
-  const [workflows, setWorkflows] = useState<Workflow[]>([
-    {
-      id: "1",
-      name: "Leave Requests",
-      type: "Default",
-      steps: [
-        { id: 1, name: "HOD Approval", description: "Department Head" },
-        { id: 2, name: "Dean Approval", description: "Faculty Dean" },
-        { id: 3, name: "Registrar Approval", description: "Final Approval" },
-      ],
-    },
-    {
-      id: "2",
-      name: "Conference/Training",
-      type: "Default",
-      steps: [
-        { id: 1, name: "HOD Approval", description: "Department Head" },
-        { id: 2, name: "Dean Approval", description: "Faculty Dean" },
-        { id: 3, name: "Registrar Approval", description: "Final Approval" },
-      ],
-    },
-    {
-      id: "3",
-      name: "Resource Requisition",
-      type: "Default",
-      steps: [
-        { id: 1, name: "HOD Approval", description: "Department Head" },
-        { id: 2, name: "Registrar Approval", description: "Final Approval" },
-      ],
-    },
-    {
-      id: "4",
-      name: "Generic Requests",
-      type: "Default",
-      steps: [
-        { id: 1, name: "HOD Approval", description: "Department Head" },
-      ],
-    },
-  ]);
+interface UserRoleOption {
+  value: string;
+  label: string;
+}
 
+const userRoleOptions: UserRoleOption[] = Object.entries(USER_ROLES).map(([key, value]) => ({
+  value: value,
+  label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), // Format for display
+}));
+
+export default function Workflows() {
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
-  const [editingSteps, setEditingSteps] = useState<WorkflowStep[]>([]);
+  const [editingStages, setEditingStages] = useState<WorkflowStep[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<UserRoleOption[]>(userRoleOptions);
+
+  useEffect(() => {
+    fetchWorkflows();
+  }, []);
+
+  const fetchWorkflows = async () => {
+    try {
+      const response = await fetch("/api/workflows");
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const formattedWorkflows: Workflow[] = data.map((wf: any) => ({
+        _id: wf._id,
+        requestType: wf.requestType,
+        isDefault: wf.isDefault,
+        stages: wf.stages.map((stage: any, index: number) => ({
+          id: index + 1,
+          stepName: stage.stepName,
+          role: stage.role,
+        })),
+      }));
+      setWorkflows(formattedWorkflows);
+    } catch (error) {
+      console.error("Error fetching workflows:", error);
+    }
+  };
 
   useEffect(() => {
     if (selectedWorkflow) {
-      setEditingSteps(selectedWorkflow.steps);
+      setEditingStages(selectedWorkflow.stages);
     } else {
-      setEditingSteps([]);
+      setEditingStages([]);
     }
   }, [selectedWorkflow]);
 
@@ -86,42 +87,74 @@ export default function Workflows() {
     setIsConfigDialogOpen(true);
   };
 
-  const handleStepChange = (id: number, field: keyof WorkflowStep, value: string) => {
-    setEditingSteps((prevSteps) =>
-      prevSteps.map((step) => (step.id === id ? { ...step, [field]: value } : step))
+  const handleStageChange = (id: number, field: keyof WorkflowStep, value: string) => {
+    setEditingStages((prevStages) =>
+      prevStages.map((stage) => (stage.id === id ? { ...stage, [field]: value } : stage))
     );
   };
 
-  const handleAddStep = () => {
-    setEditingSteps((prevSteps) => [
-      ...prevSteps,
-      { id: prevSteps.length > 0 ? Math.max(...prevSteps.map((s) => s.id)) + 1 : 1, name: "", description: "" },
+  const handleAddStage = () => {
+    setEditingStages((prevStages) => [
+      ...prevStages,
+      { id: prevStages.length > 0 ? Math.max(...prevStages.map((s) => s.id)) + 1 : 1, stepName: "", role: USER_ROLES.ADMIN_OFFICER },
     ]);
   };
 
-  const handleRemoveStep = (id: number) => {
-    setEditingSteps((prevSteps) => prevSteps.filter((step) => step.id !== id));
+  const handleRemoveStage = (id: number) => {
+    setEditingStages((prevStages) => prevStages.filter((stage) => stage.id !== id));
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     if (selectedWorkflow) {
-      setWorkflows((prevWorkflows) =>
-        prevWorkflows.map((workflow) =>
-          workflow.id === selectedWorkflow.id ? { ...workflow, steps: editingSteps } : workflow
-        )
-      );
+      try {
+        const response = await fetch(`/api/workflows/${selectedWorkflow._id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            requestType: selectedWorkflow.requestType,
+            isDefault: selectedWorkflow.isDefault,
+            stages: editingStages.map(stage => ({ stepName: stage.stepName, role: stage.role }))
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        fetchWorkflows();
+        setIsConfigDialogOpen(false);
+      } catch (error) {
+        console.error("Error saving workflow changes:", error);
+      }
     }
-    setIsConfigDialogOpen(false);
   };
 
-  const handleNewWorkflow = () => {
-    const newWorkflow: Workflow = {
-      id: String(workflows.length + 1),
-      name: "New Workflow",
-      type: "Custom",
-      steps: [{ id: 1, name: "", description: "" }],
+  const handleNewWorkflow = async () => {
+    const newWorkflowData = {
+      requestType: "New Workflow " + (workflows.length + 1),
+      isDefault: false,
+      stages: [{ stepName: "New Step", role: USER_ROLES.ADMIN_OFFICER }],
     };
-    setWorkflows((prevWorkflows) => [...prevWorkflows, newWorkflow]);
+
+    try {
+      const response = await fetch("/api/workflows", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newWorkflowData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      fetchWorkflows();
+    } catch (error) {
+      console.error("Error creating new workflow:", error);
+    }
   };
 
   return (
@@ -141,23 +174,25 @@ export default function Workflows() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {workflows.map((workflow) => (
-          <Card key={workflow.id}>
+          <Card key={workflow._id}>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{workflow.name}</CardTitle>
-                <Badge variant="secondary">{workflow.type}</Badge>
+                <CardTitle className="text-base">{workflow.requestType}</CardTitle>
+                <Badge variant="secondary">{workflow.isDefault ? "Default" : "Custom"}</Badge>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {workflow.steps.map((step) => (
-                  <div key={step.id} className="flex items-center gap-3">
+                {workflow.stages.map((stage) => (
+                  <div key={stage.id} className="flex items-center gap-3">
                     <div className="rounded-full bg-primary/10 p-2">
-                      <span className="text-xs font-semibold text-primary">{step.id}</span>
+                      <span className="text-xs font-semibold text-primary">{stage.id}</span>
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{step.name}</p>
-                      <p className="text-xs text-muted-foreground">{step.description}</p>
+                      <p className="text-sm font-medium">{stage.stepName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {userRoleOptions.find(role => role.value === stage.role)?.label || stage.role}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -181,38 +216,48 @@ export default function Workflows() {
       <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Configure {selectedWorkflow?.name}</DialogTitle>
+            <DialogTitle>Configure {selectedWorkflow?.requestType}</DialogTitle>
             <DialogDescription>
-              Edit the approval steps for the {selectedWorkflow?.name} workflow.
+              Edit the approval stages for the {selectedWorkflow?.requestType} workflow.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            {editingSteps.map((step) => (
-              <div key={step.id} className="flex items-end gap-2">
+            {editingStages.map((stage) => (
+              <div key={stage.id} className="flex items-end gap-2">
                 <div className="grid gap-2 flex-grow">
-                  <Label htmlFor={`step-name-${step.id}`}>Step {step.id} Name</Label>
+                  <Label htmlFor={`stage-name-${stage.id}`}>Stage {stage.id} Name</Label>
                   <Input
-                    id={`step-name-${step.id}`}
-                    value={step.name}
-                    onChange={(e) => handleStepChange(step.id, "name", e.target.value)}
+                    id={`stage-name-${stage.id}`}
+                    value={stage.stepName}
+                    onChange={(e) => handleStageChange(stage.id, "stepName", e.target.value)}
                   />
                 </div>
                 <div className="grid gap-2 flex-grow">
-                  <Label htmlFor={`step-description-${step.id}`}>Description</Label>
-                  <Input
-                    id={`step-description-${step.id}`}
-                    value={step.description}
-                    onChange={(e) => handleStepChange(step.id, "description", e.target.value)}
-                  />
+                  <Label htmlFor={`stage-role-${stage.id}`}>Approver Role</Label>
+                  <Select
+                    value={stage.role}
+                    onValueChange={(value) => handleStageChange(stage.id, "role", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableRoles.map((role) => (
+                        <SelectItem key={role.value} value={role.value}>
+                          {role.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Button variant="destructive" size="icon" onClick={() => handleRemoveStep(step.id)}>
+                <Button variant="destructive" size="icon" onClick={() => handleRemoveStage(stage.id)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))}
-            <Button variant="outline" onClick={handleAddStep}>
+            <Button variant="outline" onClick={handleAddStage}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Step
+              Add Stage
             </Button>
           </div>
           <DialogFooter>
