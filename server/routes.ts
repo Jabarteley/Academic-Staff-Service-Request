@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
-import { USER_ROLES, REQUEST_TYPES, InsertUser } from "@shared/schema";
+import { USER_ROLES, REQUEST_TYPES, InsertUser, LEAVE_TYPES } from "@shared/schema";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import multer from "multer";
@@ -600,6 +600,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For resource requisition requests, validate required fields
       if (requestType === REQUEST_TYPES.RESOURCE_REQUISITION) {
+        if (req.body.itemList && typeof req.body.itemList === 'string') {
+          try {
+            req.body.itemList = JSON.parse(req.body.itemList);
+          } catch (error) {
+            return res.status(400).json({ message: "Invalid item list format" });
+          }
+        }
         if (!req.body.itemList || !Array.isArray(req.body.itemList) || req.body.itemList.length === 0) {
           return res.status(400).json({ message: "Item list is required for resource requisition requests" });
         }
