@@ -101,6 +101,16 @@ export default function RequestDetail() {
 
   const canApprove = user && request && request.currentApproverId === user.id;
 
+  // Helper to get the total number of stages for this request's workflow
+  const getWorkflowStagesCount = () => {
+    // This would require fetching the workflow config for this specific request type
+    // For now, we'll return the info we have or a default
+    if (request?.requestType === 'leave' || request?.requestType === 'generic') return 2; // Admin Officer + Dean
+    if (request?.requestType === 'conference_training') return 3; // Admin Officer + Dean + Registrar
+    if (request?.requestType === 'resource_requisition') return 2; // Admin Officer + Sys Admin
+    return 2; // Default assumption
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -482,6 +492,34 @@ export default function RequestDetail() {
             </Card>
           )}
 
+          {/* Information for users who can't approve but the request is still pending */}
+          {!canApprove && request.status === 'pending' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Request Status Information</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {user?.role === USER_ROLES.DEAN && request.currentApproverId !== user.id && (
+                  <p className="text-sm text-muted-foreground">
+                    This request is currently pending approval from another user. 
+                    Stage {request.workflowStage !== undefined ? request.workflowStage + 1 : 1} of the workflow.
+                  </p>
+                )}
+                {user?.role !== USER_ROLES.DEAN && user?.role !== USER_ROLES.SYS_ADMIN && request.currentApproverId !== user.id && (
+                  <p className="text-sm text-muted-foreground">
+                    This request is awaiting approval from the designated approver for this stage.
+                  </p>
+                )}
+                {user?.role === USER_ROLES.SYS_ADMIN && (
+                  <p className="text-sm text-muted-foreground">
+                    As system administrator, you may be able to approve this request from the admin panel 
+                    or contact the current approver to complete the process.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Request Status</CardTitle>
@@ -493,10 +531,33 @@ export default function RequestDetail() {
                   {request.status && request.status.replace(/_/g, ' ')}
                 </Badge>
               </div>
+              
               {request.workflowStage !== undefined && (
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Workflow Stage</p>
-                  <p className="text-sm font-medium">Stage {request.workflowStage + 1}</p>
+                  <p className="text-sm font-medium">Stage {request.workflowStage + 1} of {getWorkflowStagesCount()}</p>
+                </div>
+              )}
+              
+              {request.currentApproverId && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Current Approver</p>
+                  <p className="text-sm font-medium">
+                    {user?.id === request.currentApproverId 
+                      ? "You" 
+                      : "Another user"}
+                  </p>
+                  {user?.id !== request.currentApproverId && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This request is awaiting approval from another approver.
+                    </p>
+                  )}
+                </div>
+              )}
+              
+              {!canApprove && request.status !== 'approved' && request.status !== 'rejected' && (
+                <div className="text-sm text-muted-foreground">
+                  You are not the current approver for this stage.
                 </div>
               )}
             </CardContent>

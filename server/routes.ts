@@ -32,7 +32,12 @@ async function determineNextApprover(role: string, department: any): Promise<str
       // Find Dean for the faculty
       let dean = await findUserByRoleAndFaculty(USER_ROLES.DEAN, department.faculty);
       if (!dean) {
-        // If no Dean is found for this faculty, try to find any SYS_ADMIN as fallback
+        // If no faculty-specific Dean is found, try to find any user with DEAN role as fallback
+        // This handles cases where the dean user doesn't have faculty field set
+        dean = await findUserByRole(USER_ROLES.DEAN);
+      }
+      if (!dean) {
+        // If still no dean found, try to find any SYS_ADMIN as fallback
         dean = await findUserByRole(USER_ROLES.SYS_ADMIN);
       }
       return dean?.id || null;
@@ -741,17 +746,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const nextStage = workflow.stages[nextStageIndex];
             updatedWorkflowStage = nextStageIndex;
 
+            console.log(`Determining next approver for role: ${nextStage.role}, department: ${requestorDepartment?.name}, faculty: ${requestorDepartment?.faculty}`);
+            
             // Determine next approver based on role and department
             updatedCurrentApproverId = await determineNextApprover(nextStage.role, requestorDepartment);
 
+            console.log(`Next approver determined: ${updatedCurrentApproverId}`);
+
             if (!updatedCurrentApproverId) {
-              return res.status(400).json({ 
-                message: `No approver found for role ${nextStage.role} in ${requestorDepartment?.name || 'department'}.` 
-              });
+              // If we can't find an approver for this role, try to find any sys admin as fallback
+              const sysAdmin = await storage.findUserByRole(USER_ROLES.SYS_ADMIN);
+              if (sysAdmin) {
+                updatedCurrentApproverId = sysAdmin.id;
+                console.log(`Using sysadmin as fallback approver: ${updatedCurrentApproverId}`);
+              } else {
+                return res.status(400).json({ 
+                  message: `No approver found for role ${nextStage.role} in ${requestorDepartment?.name || 'department'}.` 
+                });
+              }
             }
 
             newStatus = 'pending'; // Still pending, but with a new approver
-            timelineAction = `Request approved by ${user.fullName}, forwarded to ${nextStage.role}`;
+            timelineAction = `Request approved by ${user.fullName}, forwarded to ${nextStage.role} (Stage ${nextStageIndex + 1})`;
           } else {
             // Workflow completed
             newStatus = 'approved';
@@ -1019,10 +1035,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Hash password
       const hashedPassword = await bcrypt.hash(req.body.password, 10);
 
-      const userData = {
+      let userData = {
         ...req.body,
         password: hashedPassword,
       };
+
+      // Set appropriate faculty for DEAN role if not provided
+      if (userData.role === USER_ROLES.DEAN && !userData.faculty && userData.departmentId) {
+        // If creating a dean and faculty is not provided but department is, 
+        // get the faculty from the department
+        const department = await storage.getDepartment(userData.departmentId);
+        if (department && department.faculty) {
+          userData.faculty = department.faculty;
+        }
+      }
 
       const newUser = await storage.createUser(userData);
 

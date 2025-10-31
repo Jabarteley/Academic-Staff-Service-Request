@@ -107,9 +107,24 @@ const userSchema = z.object({
   phone: z.string().optional(),
   departmentId: z.string().optional(),
   role: z.string().min(1, "Role is required"),
+  faculty: z.string().optional(), // Faculty is required for Dean role, handled in conditional validation
   password: z.string().min(6, "Password must be at least 6 characters"),
   status: z.string().default("active"),
 });
+
+// Conditional schema for Dean role to require faculty
+const deanUserSchema = userSchema.refine(
+  (data) => {
+    if (data.role === USER_ROLES.DEAN) {
+      return !!data.faculty; // faculty is required if role is DEAN
+    }
+    return true;
+  },
+  {
+    message: "Faculty is required for Dean role",
+    path: ["faculty"], // field to show error on
+  }
+);
 
 export default function Users() {
   const { toast } = useToast();
@@ -128,7 +143,7 @@ export default function Users() {
   });
 
   const form = useForm({
-    resolver: zodResolver(editingUser ? updateUserSchema : userSchema),
+    resolver: zodResolver(editingUser ? updateUserSchema : deanUserSchema),
     defaultValues: {
       staffNumber: "",
       email: "",
@@ -136,6 +151,7 @@ export default function Users() {
       phone: "",
       departmentId: "",
       role: "",
+      faculty: "",
       password: "",
       status: "active",
     },
@@ -146,6 +162,7 @@ export default function Users() {
       form.reset({
         ...editingUser,
         departmentId: editingUser.department?.id || "",
+        faculty: editingUser.faculty || "",
       });
     } else {
       form.reset({
@@ -155,6 +172,7 @@ export default function Users() {
         phone: "",
         departmentId: "",
         role: "",
+        faculty: "",
         password: "",
         status: "active",
       });
@@ -396,6 +414,34 @@ export default function Users() {
                         </FormItem>
                       )}
                     />
+                    {form.watch('role') === USER_ROLES.DEAN && (
+                      <FormField
+                        control={form.control}
+                        name="faculty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Faculty *</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-faculty">
+                                  <SelectValue placeholder="Select faculty" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="Science">Science</SelectItem>
+                                <SelectItem value="Social Sciences">Social Sciences</SelectItem>
+                                <SelectItem value="Arts">Arts</SelectItem>
+                                <SelectItem value="Agriculture">Agriculture</SelectItem>
+                                <SelectItem value="Engineering">Engineering</SelectItem>
+                                <SelectItem value="Health Sciences">Health Sciences</SelectItem>
+                                <SelectItem value="Education">Education</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   </div>
                   <div className="flex gap-2 justify-end">
                     <Button
