@@ -874,6 +874,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/requests/:id/timeline", requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // Check authorization to access this request data
+      const request = await storage.getRequest(req.params.id);
+      if (!request) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+
+      const canView = request.requestorId === user.id || 
+                     request.currentApproverId === user.id ||
+                     user.role === USER_ROLES.SYS_ADMIN ||
+                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
+                     user.role === USER_ROLES.DEAN ||
+                     user.role === USER_ROLES.REGISTRAR;
+
+      if (!canView) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
       const timeline = await storage.getRequestTimeline(req.params.id);
       res.json(timeline);
     } catch (error: any) {
@@ -884,6 +904,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/requests/:id/attachments", requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // Check authorization to access this request data
+      const request = await storage.getRequest(req.params.id);
+      if (!request) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+
+      const canView = request.requestorId === user.id || 
+                     request.currentApproverId === user.id ||
+                     user.role === USER_ROLES.SYS_ADMIN ||
+                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
+                     user.role === USER_ROLES.DEAN ||
+                     user.role === USER_ROLES.REGISTRAR;
+
+      if (!canView) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
       const attachments = await storage.getRequestAttachments(req.params.id);
       res.json(attachments);
     } catch (error: any) {
@@ -940,6 +980,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/notifications/:id/read", requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // Verify that the notification belongs to the user
+      const notification = await storage.getNotification(req.params.id);
+      if (!notification) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+
+      if (notification.userId !== user.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
       await storage.markNotificationRead(req.params.id);
       res.json({ message: "Notification marked as read" });
     } catch (error: any) {
@@ -963,6 +1016,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/notifications/:id", requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      // Verify that the notification belongs to the user
+      const notification = await storage.getNotification(req.params.id);
+      if (!notification) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+
+      if (notification.userId !== user.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
       await storage.deleteNotification(req.params.id);
       res.json({ message: "Notification deleted" });
     } catch (error: any) {
