@@ -7,10 +7,19 @@ import {
   LEAVE_TYPES 
 } from "../shared/schema";
 
+const facultySchema = new Schema({
+  name: { type: String, required: true, unique: true },
+  code: { type: String, required: true, unique: true },
+  deanId: { type: Schema.Types.ObjectId, ref: "User" },
+
+}, { timestamps: true });
+
+export const Faculty = model("Faculty", facultySchema);
+
 const departmentSchema = new Schema({
   name: { type: String, required: true, unique: true },
   code: { type: String, required: true, unique: true },
-  faculty: { type: String },
+  facultyId: { type: Schema.Types.ObjectId, ref: "Faculty" },
   hodId: { type: Schema.Types.ObjectId, ref: "User" },
   
 }, { timestamps: true });
@@ -24,7 +33,7 @@ const userSchema = new Schema({
   fullName: { type: String, required: true },
   phone: { type: String },
   departmentId: { type: Schema.Types.ObjectId, ref: "Department" },
-  faculty: { type: String },
+  facultyId: { type: Schema.Types.ObjectId, ref: "Faculty" },
   role: { type: String, enum: Object.values(USER_ROLES), required: true },
   status: { type: String, default: "active" },
   joinDate: { type: Date, default: Date.now },

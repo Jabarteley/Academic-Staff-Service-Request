@@ -6,7 +6,8 @@ import {
   Attachment, 
   Notification, 
   WorkflowConfig, 
-  AuditLog 
+  AuditLog,
+  Faculty
 } from "./models";
 import type { 
   IStorage, 
@@ -16,7 +17,10 @@ import type {
   InsertRequestTimeline, 
   InsertAttachment, 
   InsertNotification, 
-  InsertAuditLog 
+  InsertAuditLog,
+  InsertFaculty,
+  InsertWorkflowConfig,
+  Faculty as FacultyType
 } from "../shared/schema";
 import { USER_ROLES } from "@shared/schema";
 import { User as UserType, Department as DepartmentType, Request as RequestType, RequestTimeline as RequestTimelineType, Attachment as AttachmentType, Notification as NotificationType, WorkflowConfig as WorkflowConfigType, AuditLog as AuditLogType } from "../shared/schema";
@@ -26,7 +30,23 @@ export class MongoStorage implements IStorage {
   // Users
   async getUser(id: string): Promise<UserType | undefined> {
     const user = await User.findById(id).lean();
-    return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
+    if (!user) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedUser = {
+      ...user,
+      id: user._id.toString(),
+      departmentId: user.departmentId || undefined,
+      facultyId: user.facultyId || undefined,
+      phone: user.phone || undefined,
+      lastLogin: user.lastLogin || undefined,
+      accountLockedUntil: user.accountLockedUntil || undefined,
+      passwordResetToken: user.passwordResetToken || undefined,
+      passwordResetExpires: user.passwordResetExpires || undefined,
+      failedLoginAttempts: user.failedLoginAttempts ?? 0
+    };
+    
+    return processedUser as unknown as UserType;
   }
 
   async getUserByEmail(email: string): Promise<UserType | undefined> {
@@ -47,7 +67,23 @@ export class MongoStorage implements IStorage {
 
   async updateUser(id: string, data: Partial<UserType>): Promise<UserType | undefined> {
     const updatedUser = await User.findByIdAndUpdate(id, data, { new: true }).lean();
-    return updatedUser ? { ...updatedUser, id: updatedUser._id.toString() } as unknown as UserType : undefined;
+    if (!updatedUser) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedUser = {
+      ...updatedUser,
+      id: updatedUser._id.toString(),
+      departmentId: updatedUser.departmentId || undefined,
+      facultyId: updatedUser.facultyId || undefined,
+      phone: updatedUser.phone || undefined,
+      lastLogin: updatedUser.lastLogin || undefined,
+      accountLockedUntil: updatedUser.accountLockedUntil || undefined,
+      passwordResetToken: updatedUser.passwordResetToken || undefined,
+      passwordResetExpires: updatedUser.passwordResetExpires || undefined,
+      failedLoginAttempts: updatedUser.failedLoginAttempts ?? 0
+    };
+    
+    return processedUser as unknown as UserType;
   }
 
   async getAllUsers(): Promise<UserType[]> {
@@ -82,6 +118,11 @@ export class MongoStorage implements IStorage {
     return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
   }
 
+  async getUserByRoleAndFacultyId(role: string, facultyId: string): Promise<UserType | undefined> {
+    const user = await User.findOne({ role, facultyId }).lean();
+    return user ? { ...user, id: user._id.toString() } as unknown as UserType : undefined;
+  }
+
   async getUserByPasswordResetToken(token: string): Promise<UserType | undefined> {
     const user = await User.findOne({ 
       passwordResetToken: token, 
@@ -107,7 +148,17 @@ export class MongoStorage implements IStorage {
   // Departments
   async getDepartment(id: string): Promise<DepartmentType | undefined> {
     const dept = await Department.findById(id).lean();
-    return dept ? { ...dept, id: dept._id.toString() } as unknown as DepartmentType : undefined;
+    if (!dept) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedDept = {
+      ...dept,
+      id: dept._id.toString(),
+      facultyId: dept.facultyId || undefined,
+      hodId: dept.hodId || undefined
+    };
+    
+    return processedDept as unknown as DepartmentType;
   }
 
   async getAllDepartments(): Promise<DepartmentType[]> {
@@ -119,6 +170,61 @@ export class MongoStorage implements IStorage {
     const newDept = new Department(dept);
     await newDept.save();
     return { ...newDept.toObject(), id: newDept._id.toString() } as unknown as DepartmentType;
+  }
+
+  async updateDepartment(id: string, data: Partial<DepartmentType>): Promise<DepartmentType | undefined> {
+    const updatedDept = await Department.findByIdAndUpdate(id, data, { new: true }).lean();
+    if (!updatedDept) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedDept = {
+      ...updatedDept,
+      id: updatedDept._id.toString(),
+      facultyId: updatedDept.facultyId || undefined,
+      hodId: updatedDept.hodId || undefined
+    };
+    
+    return processedDept as unknown as DepartmentType;
+  }
+
+  // Faculties
+  async getFaculty(id: string): Promise<FacultyType | undefined> {
+    const faculty = await Faculty.findById(id).lean();
+    if (!faculty) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedFaculty = {
+      ...faculty,
+      id: faculty._id.toString(),
+      deanId: faculty.deanId || undefined
+    };
+    
+    return processedFaculty as unknown as FacultyType;
+  }
+
+  async getAllFaculties(): Promise<FacultyType[]> {
+    const faculties = await Faculty.find().lean();
+    return faculties.map(f => ({ ...f, id: f._id.toString() })) as unknown as FacultyType[];
+  }
+
+  async createFaculty(faculty: InsertFaculty): Promise<FacultyType> {
+    const newFaculty = new Faculty(faculty);
+    await newFaculty.save();
+    return { ...newFaculty.toObject(), id: newFaculty._id.toString() } as unknown as FacultyType;
+  }
+
+  async updateFaculty(id: string, data: Partial<FacultyType>): Promise<FacultyType | undefined> {
+    const updatedFaculty = await Faculty.findByIdAndUpdate(id, data, { new: true }).lean();
+    if (!updatedFaculty) return undefined;
+    
+    // Handle null to undefined conversion for optional fields
+    const processedFaculty = {
+      ...updatedFaculty,
+      id: updatedFaculty._id.toString(),
+      deanId: updatedFaculty.deanId || undefined
+    };
+    
+    return processedFaculty as unknown as FacultyType;
   }
 
   // Requests
@@ -145,11 +251,30 @@ export class MongoStorage implements IStorage {
       ]
     };
 
-    if (user.role === USER_ROLES.ADMIN_OFFICER || user.role === USER_ROLES.DEAN) {
-      // For ADMIN_OFFICER and DEAN roles, also show requests in their department that are pending approval
+    if (user.role === USER_ROLES.ADMIN_OFFICER) {
+      // For ADMIN_OFFICER (HOD) role, show requests in their department that are pending approval
       // but exclude requests where they are the current approver (to avoid duplicates)
       query.$or.push({
         departmentId: user.departmentId,
+        status: 'pending',
+        currentApproverId: { $ne: user.id }
+      });
+    } else if (user.role === USER_ROLES.DEAN && user.facultyId) {
+      // For DEAN role, show requests from all departments in their faculty
+      // but exclude requests where they are the current approver (to avoid duplicates)
+      const departmentsInFaculty = await Department.find({ facultyId: user.facultyId }).select('_id').lean();
+      const departmentIds = departmentsInFaculty.map(dept => dept._id);
+      if (departmentIds.length > 0) {
+        query.$or.push({
+          departmentId: { $in: departmentIds },
+          status: 'pending',
+          currentApproverId: { $ne: user.id }
+        });
+      }
+    } else if (user.role === USER_ROLES.REGISTRAR) {
+      // For REGISTRAR role, show all pending requests regardless of department or faculty
+      // but exclude requests where they are the current approver (to avoid duplicates)
+      query.$or.push({
         status: 'pending',
         currentApproverId: { $ne: user.id }
       });
@@ -228,6 +353,11 @@ export class MongoStorage implements IStorage {
     const newNotification = new Notification(notification);
     await newNotification.save();
     return { ...newNotification.toObject(), id: newNotification._id.toString() } as unknown as NotificationType;
+  }
+
+  async getNotification(id: string): Promise<NotificationType | undefined> {
+    const notification = await Notification.findById(id).lean();
+    return notification ? { ...notification, id: notification._id.toString() } as unknown as NotificationType : undefined;
   }
 
   async markNotificationRead(id: string): Promise<void> {

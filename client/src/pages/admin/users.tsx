@@ -42,7 +42,7 @@ import { z } from "zod";
 import { Plus, Search, UserPlus, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { User, Department } from "@shared/schema";
+import type { User, Department, Faculty } from "@shared/schema";
 import { USER_ROLES, updateUserSchema } from "@shared/schema";
 
 function BulkUploadDialog({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
@@ -107,22 +107,22 @@ const userSchema = z.object({
   phone: z.string().optional(),
   departmentId: z.string().optional(),
   role: z.string().min(1, "Role is required"),
-  faculty: z.string().optional(), // Faculty is required for Dean role, handled in conditional validation
+  facultyId: z.string().optional(), // Faculty is required for Dean role, handled in conditional validation
   password: z.string().min(6, "Password must be at least 6 characters"),
   status: z.string().default("active"),
 });
 
-// Conditional schema for Dean role to require faculty
+// Conditional schema for Dean role to require facultyId
 const deanUserSchema = userSchema.refine(
   (data) => {
     if (data.role === USER_ROLES.DEAN) {
-      return !!data.faculty; // faculty is required if role is DEAN
+      return !!data.facultyId; // facultyId is required if role is DEAN
     }
     return true;
   },
   {
     message: "Faculty is required for Dean role",
-    path: ["faculty"], // field to show error on
+    path: ["facultyId"], // field to show error on
   }
 );
 
@@ -142,6 +142,10 @@ export default function Users() {
     queryKey: ["/api/departments"],
   });
 
+  const { data: faculties } = useQuery<Faculty[]>({
+    queryKey: ["/api/faculties"],
+  });
+
   const form = useForm({
     resolver: zodResolver(editingUser ? updateUserSchema : deanUserSchema),
     defaultValues: {
@@ -151,7 +155,7 @@ export default function Users() {
       phone: "",
       departmentId: "",
       role: "",
-      faculty: "",
+      facultyId: "",
       password: "",
       status: "active",
     },
@@ -161,8 +165,8 @@ export default function Users() {
     if (editingUser) {
       form.reset({
         ...editingUser,
-        departmentId: editingUser.department?.id || "",
-        faculty: editingUser.faculty || "",
+        departmentId: editingUser.departmentId || "",
+        facultyId: editingUser.facultyId || "",
       });
     } else {
       form.reset({
@@ -172,7 +176,7 @@ export default function Users() {
         phone: "",
         departmentId: "",
         role: "",
-        faculty: "",
+        facultyId: "",
         password: "",
         status: "active",
       });
@@ -417,7 +421,7 @@ export default function Users() {
                     {form.watch('role') === USER_ROLES.DEAN && (
                       <FormField
                         control={form.control}
-                        name="faculty"
+                        name="facultyId"
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Faculty *</FormLabel>
@@ -428,13 +432,11 @@ export default function Users() {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="Science">Science</SelectItem>
-                                <SelectItem value="Social Sciences">Social Sciences</SelectItem>
-                                <SelectItem value="Arts">Arts</SelectItem>
-                                <SelectItem value="Agriculture">Agriculture</SelectItem>
-                                <SelectItem value="Engineering">Engineering</SelectItem>
-                                <SelectItem value="Health Sciences">Health Sciences</SelectItem>
-                                <SelectItem value="Education">Education</SelectItem>
+                                {faculties?.map(faculty => (
+                                  <SelectItem key={faculty.id} value={faculty.id}>
+                                    {faculty.name}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -644,6 +646,32 @@ export default function Users() {
                       </FormItem>
                     )}
                   />
+                  {form.watch('role') === USER_ROLES.DEAN && (
+                    <FormField
+                      control={form.control}
+                      name="facultyId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Faculty</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select faculty" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {faculties?.map(faculty => (
+                                <SelectItem key={faculty.id} value={faculty.id}>
+                                  {faculty.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                   <FormField
                     control={form.control}
                     name="status"

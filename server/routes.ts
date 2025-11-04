@@ -8,16 +8,29 @@ import nodemailer from "nodemailer";
 import multer from "multer";
 import csv from "csv-parser";
 import { Readable } from "stream";
-import { Request as RequestModel, Department as DepartmentModel } from "./models";
+import { Request as RequestModel, Department as DepartmentModel, Faculty as FacultyModel } from "./models";
 
-// Find user by role and faculty
-async function findUserByRoleAndFaculty(role: string, faculty: string) {
-  return await storage.getUserByRoleAndFaculty(role, faculty);
+// Find user by role and facultyId
+async function findUserByRoleAndFacultyId(role: string, facultyId: string) {
+  return await storage.getUserByRoleAndFacultyId(role, facultyId);
 }
 
 // Find user by role only
 async function findUserByRole(role: string) {
   return await storage.getUserByRole(role);
+}
+
+// Find user by role and faculty (for backward compatibility)
+async function findUserByRoleAndFaculty(role: string, faculty: string) {
+  // First try to find by facultyId if the faculty parameter is actually an ID
+  if (faculty && faculty.length === 24) { // MongoDB ObjectId length
+    return await findUserByRoleAndFacultyId(role, faculty);
+  }
+  // Otherwise, look for users where faculty field matches (for backward compatibility)
+  const user = await storage.getUserByRoleAndFaculty(role, faculty);
+  if (user) return user;
+  // If not found, try searching by faculty ID
+  return await findUserByRoleAndFacultyId(role, faculty);
 }
 
 // Helper function to determine the next approver based on role and department
@@ -30,10 +43,13 @@ async function determineNextApprover(role: string, department: any): Promise<str
       return department.hodId || (await findUserByRole(USER_ROLES.ADMIN_OFFICER))?.id || null;
     case USER_ROLES.DEAN:
       // Find Dean for the faculty
-      let dean = await findUserByRoleAndFaculty(USER_ROLES.DEAN, department.faculty);
+      let dean = null;
+      if (department.facultyId) {
+        dean = await findUserByRoleAndFacultyId(USER_ROLES.DEAN, department.facultyId);
+      }
       if (!dean) {
         // If no faculty-specific Dean is found, try to find any user with DEAN role as fallback
-        // This handles cases where the dean user doesn't have faculty field set
+        // This handles cases where the dean user doesn't have facultyId field set
         dean = await findUserByRole(USER_ROLES.DEAN);
       }
       if (!dean) {
@@ -51,11 +67,12 @@ async function determineNextApprover(role: string, department: any): Promise<str
       return registrar?.id || null;
     case USER_ROLES.SYS_ADMIN:
       // Find System Administrator
-      return await findUserByRole(USER_ROLES.SYS_ADMIN);
-    default:
-      // For other roles, try to find any SYS_ADMIN as a general fallback
       const sysAdmin = await findUserByRole(USER_ROLES.SYS_ADMIN);
       return sysAdmin?.id || null;
+    default:
+      // For other roles, try to find any SYS_ADMIN as a general fallback
+      const sysAdminDefault = await findUserByRole(USER_ROLES.SYS_ADMIN);
+      return sysAdminDefault?.id || null;
   }
 }
 
@@ -482,12 +499,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check authorization
-      const canView = request.requestorId === user.id || 
-                     request.currentApproverId === user.id ||
-                     user.role === USER_ROLES.SYS_ADMIN ||
-                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
-                     user.role === USER_ROLES.DEAN ||
-                     user.role === USER_ROLES.REGISTRAR;
+      let canView = request.requestorId === user.id || 
+                   request.currentApproverId === user.id ||
+                   user.role === USER_ROLES.SYS_ADMIN;
+
+      // Additional checks for roles that can view requests beyond basic conditions
+      if (!canView) {
+        if (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) {
+          canView = true;
+        } else if (user.role === USER_ROLES.DEAN) {
+          // DEAN can view requests from their faculty
+          const requestDepartment = await storage.getDepartment(request.departmentId as string);
+          if (requestDepartment && requestDepartment.facultyId === user.facultyId) {
+            canView = true;
+          }
+        } else if (user.role === USER_ROLES.REGISTRAR) {
+          // REGISTRAR can view any request
+          canView = true;
+        }
+      }
 
       if (!canView) {
         return res.status(403).json({ message: "Forbidden" });
@@ -552,8 +582,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentApproverId = adminOfficer?.id || null;
         }
       } else if (firstStage.role === USER_ROLES.DEAN) {
-        const deanUser = await storage.findUserByRoleAndFaculty(firstStage.role, department.faculty);
-        currentApproverId = deanUser?.id || null;
+        if (department.facultyId) {
+          const deanUser = await storage.getUserByRoleAndFacultyId(firstStage.role, department.facultyId);
+          currentApproverId = deanUser?.id || null;
+        } else {
+          currentApproverId = null;
+        }
       } else if (firstStage.role === USER_ROLES.REGISTRAR) {
         const registrarUser = await storage.findUserByRole(firstStage.role);
         currentApproverId = registrarUser?.id || null;
@@ -666,6 +700,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             title: 'New Request Assigned for Review',
             message: `A new request "${newRequest.title}" has been assigned to you for review.`,
             link: `/requests/${newRequest.id}`,
+            isRead: false,
+            emailSent: false
           });
 
           // Send email notification to approver
@@ -839,6 +875,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: `Request ${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Modification Requested'}`,
           message: `Your request "${request.title}" has been ${action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'returned for modification'}.`,
           link: `/requests/${request.id}`,
+          isRead: false,
+          emailSent: false
         });
 
         // Send email notification to requestor
@@ -854,6 +892,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: 'Request Returned for Modification',
           message: `The request "${request.title}" has been returned to the requestor for modifications.`,
           link: `/requests/${request.id}`,
+          isRead: false,
+          emailSent: false
         });
       }
 
@@ -883,12 +923,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Request not found" });
       }
 
-      const canView = request.requestorId === user.id || 
-                     request.currentApproverId === user.id ||
-                     user.role === USER_ROLES.SYS_ADMIN ||
-                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
-                     user.role === USER_ROLES.DEAN ||
-                     user.role === USER_ROLES.REGISTRAR;
+      let canView = request.requestorId === user.id || 
+                   request.currentApproverId === user.id ||
+                   user.role === USER_ROLES.SYS_ADMIN;
+
+      // Additional checks for roles that can view requests beyond basic conditions
+      if (!canView) {
+        if (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) {
+          canView = true;
+        } else if (user.role === USER_ROLES.DEAN) {
+          // DEAN can view requests from their faculty
+          const requestDepartment = await storage.getDepartment(request.departmentId as string);
+          if (requestDepartment && requestDepartment.facultyId === user.facultyId) {
+            canView = true;
+          }
+        } else if (user.role === USER_ROLES.REGISTRAR) {
+          // REGISTRAR can view any request
+          canView = true;
+        }
+      }
 
       if (!canView) {
         return res.status(403).json({ message: "Forbidden" });
@@ -913,12 +966,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Request not found" });
       }
 
-      const canView = request.requestorId === user.id || 
-                     request.currentApproverId === user.id ||
-                     user.role === USER_ROLES.SYS_ADMIN ||
-                     (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) ||
-                     user.role === USER_ROLES.DEAN ||
-                     user.role === USER_ROLES.REGISTRAR;
+      let canView = request.requestorId === user.id || 
+                   request.currentApproverId === user.id ||
+                   user.role === USER_ROLES.SYS_ADMIN;
+
+      // Additional checks for roles that can view requests beyond basic conditions
+      if (!canView) {
+        if (user.role === USER_ROLES.ADMIN_OFFICER && user.departmentId === request.departmentId) {
+          canView = true;
+        } else if (user.role === USER_ROLES.DEAN) {
+          // DEAN can view requests from their faculty
+          const requestDepartment = await storage.getDepartment(request.departmentId as string);
+          if (requestDepartment && requestDepartment.facultyId === user.facultyId) {
+            canView = true;
+          }
+        } else if (user.role === USER_ROLES.REGISTRAR) {
+          // REGISTRAR can view any request
+          canView = true;
+        }
+      }
 
       if (!canView) {
         return res.status(403).json({ message: "Forbidden" });
@@ -1037,6 +1103,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== Faculty Routes ====================
+
+  app.get("/api/faculties", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const faculties = await storage.getAllFaculties();
+      res.json(faculties);
+    } catch (error: any) {
+      console.error("Get faculties error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/faculties", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const faculty = await storage.createFaculty(req.body);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'create_faculty',
+        resourceType: 'faculty',
+        resourceId: faculty.id,
+        ipAddress: req.ip || null,
+      });
+
+      res.status(201).json(faculty);
+    } catch (error: any) {
+      console.error("Create faculty error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Endpoint to appoint a dean to a faculty
+  app.put("/api/faculties/:id/appoint-dean", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const { id } = req.params;
+      const { userId } = req.body;
+
+      // Validate faculty exists
+      const faculty = await storage.getFaculty(id);
+      if (!faculty) {
+        return res.status(404).json({ message: "Faculty not found" });
+      }
+
+      // Validate user exists and has DEAN role
+      if (!userId) {
+        return res.status(400).json({ message: "User ID is required" });
+      }
+
+      const deanUser = await storage.getUser(userId);
+      if (!deanUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (deanUser.role !== USER_ROLES.DEAN) {
+        return res.status(400).json({ message: "Selected user is not assigned the DEAN role" });
+      }
+
+      // Update faculty with the new dean ID
+      await storage.updateFaculty(id, { deanId: userId });
+
+      // Update the user's facultyId to match the faculty
+      await storage.updateUser(userId, { facultyId: id });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'appoint_dean',
+        resourceType: 'faculty',
+        resourceId: id,
+        details: { 
+          previousDeanId: faculty.deanId, 
+          newDeanId: userId,
+          facultyName: faculty.name
+        },
+        ipAddress: req.ip || null,
+      });
+
+      res.json({ message: "Dean appointed successfully", faculty: { ...faculty, deanId: userId } });
+    } catch (error: any) {
+      console.error("Appoint dean error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ==================== Department Routes ====================
 
   app.get("/api/departments", requireAuth, async (req: Request, res: Response) => {
@@ -1054,6 +1209,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
+      // Validate that the facultyId exists if provided
+      if (req.body.facultyId) {
+        const faculty = await storage.getFaculty(req.body.facultyId);
+        if (!faculty) {
+          return res.status(400).json({ message: "Invalid faculty ID provided." });
+        }
+      }
+
       const department = await storage.createDepartment(req.body);
 
       await storage.createAuditLog({
@@ -1067,6 +1230,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(department);
     } catch (error: any) {
       console.error("Create department error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.put("/api/admin/departments/:id", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const { id } = req.params;
+      
+      // Validate that the facultyId exists if provided
+      if (req.body.facultyId) {
+        const faculty = await storage.getFaculty(req.body.facultyId);
+        if (!faculty) {
+          return res.status(400).json({ message: "Invalid faculty ID provided." });
+        }
+      }
+
+      // Check if department exists
+      const existingDepartment = await storage.getDepartment(id);
+      if (!existingDepartment) {
+        return res.status(404).json({ message: "Department not found." });
+      }
+
+      const updatedDepartment = await storage.updateDepartment(id, req.body);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'update_department',
+        resourceType: 'department',
+        resourceId: id,
+        ipAddress: req.ip || null,
+      });
+
+      res.json(updatedDepartment);
+    } catch (error: any) {
+      console.error("Update department error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -1106,17 +1307,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword,
       };
 
-      // Set appropriate faculty for DEAN role if not provided
-      if (userData.role === USER_ROLES.DEAN && !userData.faculty && userData.departmentId) {
-        // If creating a dean and faculty is not provided but department is, 
-        // get the faculty from the department
+      // Set appropriate facultyId for DEAN role if not provided
+      if (userData.role === USER_ROLES.DEAN && !userData.facultyId && userData.departmentId) {
+        // If creating a dean and facultyId is not provided but department is, 
+        // get the facultyId from the department
         const department = await storage.getDepartment(userData.departmentId);
-        if (department && department.faculty) {
-          userData.faculty = department.faculty;
+        if (department && department.facultyId) {
+          userData.facultyId = department.facultyId;
+        }
+      }
+
+      // Ensure userData.facultyId is properly handled to avoid null assignment issues
+      if (userData.facultyId === undefined) {
+        delete userData.facultyId; // Don't set undefined values to prevent MongoDB validation issues
+      }
+
+      // If user is a dean and has a facultyId, update the faculty record with the deanId
+      if (userData.role === USER_ROLES.DEAN && userData.facultyId) {
+        const faculty = await storage.getFaculty(userData.facultyId);
+        if (faculty) {
+          // Update the faculty with the new deanId
+          await storage.updateFaculty(userData.facultyId, { deanId: null }); // Temporarily clear to avoid conflicts
+          await storage.createAuditLog({
+            userId: currentUser.id,
+            action: 'update_faculty_dean',
+            resourceType: 'faculty',
+            resourceId: userData.facultyId,
+            details: { 
+              previousDeanId: faculty.deanId,
+              newDeanId: null,
+              action: 'temporarily clearing dean before assignment'
+            },
+            ipAddress: req.ip || null,
+          });
         }
       }
 
       const newUser = await storage.createUser(userData);
+
+      // If the new user is a dean, update the faculty record with the deanId
+      if (newUser.role === USER_ROLES.DEAN && newUser.facultyId) {
+        await storage.updateFaculty(newUser.facultyId, { deanId: newUser.id });
+        await storage.createAuditLog({
+          userId: currentUser.id,
+          action: 'assign_dean_to_faculty',
+          resourceType: 'faculty',
+          resourceId: newUser.facultyId,
+          details: { deanId: newUser.id },
+          ipAddress: req.ip || null,
+        });
+      }
 
       await storage.createAuditLog({
         userId: currentUser.id,

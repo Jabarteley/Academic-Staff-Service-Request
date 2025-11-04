@@ -87,6 +87,7 @@ export function AppSidebar() {
   const adminMenuItems = [
     { title: "Dashboard", url: "/dashboard", icon: Home },
     { title: "User Management", url: "/admin/users", icon: Users },
+    { title: "Faculties", url: "/admin/faculties", icon: FolderKanban },
     { title: "Departments", url: "/admin/departments", icon: FolderKanban },
     { title: "Workflows", url: "/admin/workflows", icon: Settings },
     { title: "Reports", url: "/admin/reports", icon: BarChart3 },

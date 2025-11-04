@@ -53,11 +53,22 @@ const baseSchema = z.object({
   updatedAt: z.date(),
 });
 
+// Faculty
+export const facultySchema = baseSchema.extend({
+  name: z.string(),
+  code: z.string(),
+  deanId: z.string().optional(),
+});
+
+export const insertFacultySchema = facultySchema.omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertFaculty = z.infer<typeof insertFacultySchema>;
+export type Faculty = z.infer<typeof facultySchema>;
+
 // Department
 export const departmentSchema = baseSchema.extend({
   name: z.string(),
   code: z.string(),
-  faculty: z.string().optional(),
+  facultyId: z.string().optional(),
   hodId: z.string().optional(),
   
 });
@@ -74,7 +85,7 @@ export const userSchema = baseSchema.extend({
   fullName: z.string(),
   phone: z.string().optional(),
   departmentId: z.string().optional(),
-  faculty: z.string().optional(),
+  facultyId: z.string().optional(),
   role: z.nativeEnum(USER_ROLES),
   status: z.string(),
   joinDate: z.date().optional(),
@@ -214,3 +225,69 @@ export const systemSettingSchema = baseSchema.extend({
 export const insertSystemSettingSchema = systemSettingSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
 export type SystemSetting = z.infer<typeof systemSettingSchema>;
+
+// Interface for storage layer
+export interface IStorage {
+  getNotification(id: string): Promise<Notification | undefined>;
+  // Users
+  getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByStaffNumber(staffNumber: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
+  searchUsers(query: string): Promise<User[]>;
+  findUserByRole(role: string): Promise<User | undefined>;
+  getUserByRole(role: string): Promise<User | undefined>;
+  getUserByRoleAndFaculty(role: string, faculty: string): Promise<User | undefined>;
+  getUserByRoleAndFacultyId(role: string, facultyId: string): Promise<User | undefined>;
+  getUserByPasswordResetToken(token: string): Promise<User | undefined>;
+  setPasswordResetToken(userId: string, token: string, expires: Date): Promise<void>;
+  clearPasswordResetToken(userId: string): Promise<void>;
+
+  // Departments
+  getDepartment(id: string): Promise<Department | undefined>;
+  getAllDepartments(): Promise<Department[]>;
+  createDepartment(dept: InsertDepartment): Promise<Department>;
+  updateDepartment(id: string, data: Partial<Department>): Promise<Department | undefined>;
+
+  // Faculty
+  getFaculty(id: string): Promise<Faculty | undefined>;
+  getAllFaculties(): Promise<Faculty[]>;
+  createFaculty(faculty: InsertFaculty): Promise<Faculty>;
+  updateFaculty(id: string, data: Partial<Faculty>): Promise<Faculty | undefined>;
+
+  // Requests
+  getRequest(id: string): Promise<Request | undefined>;
+  getRequestsByUser(userId: string): Promise<Request[]>;
+  getPendingApprovals(user: User): Promise<Request[]>;
+  createRequest(request: InsertRequest): Promise<Request>;
+  updateRequest(id: string, data: Partial<Request>): Promise<Request | undefined>;
+  searchRequests(query: string, filters?: any): Promise<Request[]>;
+
+  // Request Timeline
+  getRequestTimeline(requestId: string): Promise<RequestTimeline[]>;
+  addTimelineEntry(entry: InsertRequestTimeline): Promise<RequestTimeline>;
+
+  // Attachments
+  getRequestAttachments(requestId: string): Promise<Attachment[]>;
+  createAttachment(attachment: InsertAttachment): Promise<Attachment>;
+
+  // Notifications
+  getUserNotifications(userId: string): Promise<Notification[]>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotification(id: string): Promise<Notification | undefined>;
+  markNotificationRead(id: string): Promise<void>;
+  markAllNotificationsRead(userId: string): Promise<void>;
+  deleteNotification(id: string): Promise<void>;
+
+  // Workflow Configs
+  getWorkflowConfig(requestType: string, departmentId?: string): Promise<WorkflowConfig | undefined>;
+  createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfig>;
+  updateWorkflowConfig(id: string, data: Partial<WorkflowConfig>): Promise<WorkflowConfig | undefined>;
+  getAllWorkflowConfigs(): Promise<WorkflowConfig[]>;
+
+  // Audit Logs
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  searchAuditLogs(filters: any): Promise<AuditLog[]>;
+}

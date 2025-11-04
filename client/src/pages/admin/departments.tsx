@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,27 +28,33 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Plus, FolderKanban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Department } from "@shared/schema";
+import type { Department, Faculty } from "@shared/schema";
 
 const departmentSchema = z.object({
   name: z.string().min(1, "Department name is required"),
   code: z.string().min(1, "Department code is required"),
-  faculty: z.string().optional(),
+  facultyId: z.string().optional(),
 });
 
 export default function Departments() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
 
   const { data: departments, isLoading } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
+  });
+
+  const { data: faculties } = useQuery<Faculty[]>({
+    queryKey: ["/api/faculties"],
   });
 
   const form = useForm({
@@ -56,7 +62,47 @@ export default function Departments() {
     defaultValues: {
       name: "",
       code: "",
-      faculty: "",
+      facultyId: "",
+    },
+  });
+
+  // Update form values when editingDepartment changes
+  useEffect(() => {
+    if (editingDepartment) {
+      form.reset({
+        name: editingDepartment.name,
+        code: editingDepartment.code,
+        facultyId: editingDepartment.facultyId || "",
+      });
+    } else {
+      form.reset({
+        name: "",
+        code: "",
+        facultyId: "",
+      });
+    }
+  }, [editingDepartment, form]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: any) => {
+      if (!editingDepartment) return;
+      return apiRequest("PUT", `/api/admin/departments/${editingDepartment.id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/departments"] });
+      toast({
+        title: "Department updated",
+        description: "Department has been updated successfully.",
+      });
+      setEditingDepartment(null);
+      form.reset();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update department",
+        variant: "destructive",
+      });
     },
   });
 
@@ -83,7 +129,11 @@ export default function Departments() {
   });
 
   const onSubmit = (data: any) => {
-    createMutation.mutate(data);
+    if (editingDepartment) {
+      updateMutation.mutate({ ...data, id: editingDepartment.id });
+    } else {
+      createMutation.mutate(data);
+    }
   };
 
   return (
@@ -95,7 +145,15 @@ export default function Departments() {
             Manage university departments
           </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog 
+          open={isDialogOpen || !!editingDepartment} 
+          onOpenChange={(open) => {
+            if (!open) {
+              setIsDialogOpen(false);
+              setEditingDepartment(null);
+            }
+          }}
+        >
           <DialogTrigger asChild>
             <Button data-testid="button-new-department">
               <Plus className="mr-2 h-4 w-4" />
@@ -104,9 +162,11 @@ export default function Departments() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New Department</DialogTitle>
+              <DialogTitle>
+                {editingDepartment ? 'Edit Department' : 'Create New Department'}
+              </DialogTitle>
               <DialogDescription>
-                Add a new department to the system
+                {editingDepartment ? 'Update department details' : 'Add a new department to the system'}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -139,12 +199,25 @@ export default function Departments() {
                 />
                 <FormField
                   control={form.control}
-                  name="faculty"
+                  name="facultyId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Faculty</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Science" {...field} data-testid="input-faculty" />
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a faculty" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {faculties?.map(faculty => (
+                              <SelectItem key={faculty.id} value={faculty.id}>
+                                {faculty.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -154,12 +227,20 @@ export default function Departments() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setIsDialogOpen(false)}
+                    onClick={() => {
+                      setIsDialogOpen(false);
+                      setEditingDepartment(null);
+                    }}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={createMutation.isPending}>
-                    {createMutation.isPending ? "Creating..." : "Create Department"}
+                  <Button 
+                    type="submit" 
+                    disabled={editingDepartment ? updateMutation.isPending : createMutation.isPending}
+                  >
+                    {editingDepartment 
+                      ? (updateMutation.isPending ? "Updating..." : "Update Department") 
+                      : (createMutation.isPending ? "Creating..." : "Create Department")}
                   </Button>
                 </div>
               </form>
@@ -190,18 +271,25 @@ export default function Departments() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {departments.map((dept) => (
-                  <TableRow key={dept.id} data-testid={`row-department-${dept.id}`}>
-                    <TableCell className="font-medium">{dept.name}</TableCell>
-                    <TableCell>{dept.code}</TableCell>
-                    <TableCell>{dept.faculty || '-'}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">
-                        Edit
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {departments.map((dept) => {
+                  const faculty = faculties?.find(f => f.id === dept.facultyId);
+                  return (
+                    <TableRow key={dept.id} data-testid={`row-department-${dept.id}`}>
+                      <TableCell className="font-medium">{dept.name}</TableCell>
+                      <TableCell>{dept.code}</TableCell>
+                      <TableCell>{faculty?.name || '-'}</TableCell>
+                      <TableCell>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => setEditingDepartment(dept)}
+                        >
+                          Edit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (

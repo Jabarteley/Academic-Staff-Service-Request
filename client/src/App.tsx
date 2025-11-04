@@ -18,6 +18,7 @@ import Notifications from "@/pages/notifications";
 import Approvals from "@/pages/approvals";
 import Users from "@/pages/admin/users";
 import Departments from "@/pages/admin/departments";
+import Faculties from "@/pages/admin/faculties";
 import Reports from "@/pages/admin/reports";
 import Workflows from "@/pages/admin/workflows";
 import AuditLogs from "@/pages/admin/audit-logs";
@@ -85,6 +86,7 @@ function Router() {
       <Route path="/notifications" component={() => <ProtectedRoute component={Notifications} />} />
       <Route path="/approvals" component={() => <ProtectedRoute component={Approvals} allowedRoles={approverRoles} />} />
       <Route path="/admin/users" component={() => <ProtectedRoute component={Users} allowedRoles={adminRoles} />} />
+      <Route path="/admin/faculties" component={() => <ProtectedRoute component={Faculties} allowedRoles={adminRoles} />} />
       <Route path="/admin/departments" component={() => <ProtectedRoute component={Departments} allowedRoles={adminRoles} />} />
       <Route path="/admin/workflows" component={() => <ProtectedRoute component={Workflows} allowedRoles={adminRoles} />} />
       <Route path="/admin/reports" component={() => <ProtectedRoute component={Reports} allowedRoles={adminRoles} />} />
