@@ -384,6 +384,11 @@ export class MongoStorage implements IStorage {
     return config ? { ...config, id: config._id.toString() } as unknown as WorkflowConfigType : undefined;
   }
 
+  async getWorkflowConfigById(id: string): Promise<WorkflowConfigType | undefined> {
+    const config = await WorkflowConfig.findById(id).lean();
+    return config ? { ...config, id: config._id.toString() } as unknown as WorkflowConfigType : undefined;
+  }
+
   async createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfigType> {
     const newConfig = new WorkflowConfig(config);
     await newConfig.save();
@@ -393,6 +398,10 @@ export class MongoStorage implements IStorage {
   async updateWorkflowConfig(id: string, data: Partial<WorkflowConfigType>): Promise<WorkflowConfigType | undefined> {
     const updatedConfig = await WorkflowConfig.findByIdAndUpdate(id, data, { new: true }).lean();
     return updatedConfig ? { ...updatedConfig, id: updatedConfig._id.toString() } as unknown as WorkflowConfigType : undefined;
+  }
+  
+  async deleteWorkflowConfig(id: string): Promise<void> {
+    await WorkflowConfig.findByIdAndDelete(id);
   }
   
   async getAllWorkflowConfigs(): Promise<WorkflowConfigType[]> {

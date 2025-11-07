@@ -43,8 +43,10 @@ const userRoleOptions: UserRoleOption[] = Object.entries(USER_ROLES).map(([key, 
 export default function Workflows() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [editingStages, setEditingStages] = useState<WorkflowStep[]>([]);
+  const [newWorkflowName, setNewWorkflowName] = useState("");
   const [availableRoles, setAvailableRoles] = useState<UserRoleOption[]>(userRoleOptions);
 
   useEffect(() => {
@@ -132,8 +134,13 @@ export default function Workflows() {
   };
 
   const handleNewWorkflow = async () => {
+    if (!newWorkflowName.trim()) {
+      alert("Please enter a name for the new workflow");
+      return;
+    }
+
     const newWorkflowData = {
-      requestType: "New Workflow " + (workflows.length + 1),
+      requestType: newWorkflowName,
       isDefault: false,
       stages: [{ stepName: "New Step", role: USER_ROLES.ADMIN_OFFICER }],
     };
@@ -152,8 +159,28 @@ export default function Workflows() {
       }
 
       fetchWorkflows();
+      setIsCreateDialogOpen(false);
+      setNewWorkflowName("");
     } catch (error) {
       console.error("Error creating new workflow:", error);
+    }
+  };
+
+  const handleDeleteWorkflow = async (workflowId: string) => {
+    if (window.confirm("Are you sure you want to delete this workflow? This action cannot be undone.")) {
+      try {
+        const response = await fetch(`/api/workflows/${workflowId}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        fetchWorkflows();
+      } catch (error) {
+        console.error("Error deleting workflow:", error);
+      }
     }
   };
 
@@ -166,7 +193,7 @@ export default function Workflows() {
             Configure approval workflows for different request types
           </p>
         </div>
-        <Button data-testid="button-new-workflow" onClick={handleNewWorkflow}>
+        <Button data-testid="button-new-workflow" onClick={() => setIsCreateDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New Workflow
         </Button>
@@ -178,7 +205,17 @@ export default function Workflows() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{workflow.requestType}</CardTitle>
-                <Badge variant="secondary">{workflow.isDefault ? "Default" : "Custom"}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{workflow.isDefault ? "Default" : "Custom"}</Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                    onClick={() => handleDeleteWorkflow(workflow._id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -212,6 +249,32 @@ export default function Workflows() {
           </Card>
         ))}
       </div>
+
+      {/* Create New Workflow Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Create New Workflow</DialogTitle>
+            <DialogDescription>
+              Provide a name for your new workflow and configure the stages after creation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="workflow-name">Workflow Name</Label>
+              <Input
+                id="workflow-name"
+                value={newWorkflowName}
+                onChange={(e) => setNewWorkflowName(e.target.value)}
+                placeholder="e.g., Equipment Request, Travel Approval"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" onClick={handleNewWorkflow}>Create Workflow</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isConfigDialogOpen} onOpenChange={setIsConfigDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">

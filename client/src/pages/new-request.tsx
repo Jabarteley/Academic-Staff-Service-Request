@@ -78,6 +78,10 @@ export default function NewRequest() {
     queryKey: ["/api/departments"],
   });
 
+  const { data: workflowConfigs } = useQuery({
+    queryKey: ["/api/workflows"],
+  });
+
   const getSchema = () => {
     switch (requestType) {
       case "leave":
@@ -221,6 +225,12 @@ export default function NewRequest() {
                           <SelectItem value="conference_training">Conference/Training</SelectItem>
                           <SelectItem value="resource_requisition">Resource Requisition</SelectItem>
                           <SelectItem value="generic">Generic Request</SelectItem>
+                          {/* Add custom workflow types */}
+                          {workflowConfigs?.filter((wf: any) => !['leave', 'conference_training', 'resource_requisition', 'generic'].includes(wf.requestType)).map((wf: any) => (
+                            <SelectItem key={wf._id} value={wf.requestType}>
+                              {wf.requestType}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />

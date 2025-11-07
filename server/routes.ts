@@ -539,7 +539,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate required fields
       const { requestType, title, description } = req.body;
       
-      if (!requestType || !Object.values(REQUEST_TYPES).includes(requestType)) {
+      if (!requestType) {
+        return res.status(400).json({ message: "Request type is required" });
+      }
+      
+      // Check if it's a standard request type or if it's a custom workflow type that exists
+      const isStandardType = Object.values(REQUEST_TYPES).includes(requestType);
+      let customWorkflowExists = false;
+      
+      if (!isStandardType) {
+        // Check if this is a custom workflow type by looking it up
+        const customWorkflow = await storage.getWorkflowConfig(requestType, undefined);
+        customWorkflowExists = !!customWorkflow;
+      }
+      
+      if (!isStandardType && !customWorkflowExists) {
         return res.status(400).json({ message: "Valid request type is required" });
       }
       
@@ -1548,7 +1562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== Workflow Configuration Routes ====================
 
-  app.get("/api/workflows", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  app.get("/api/workflows", requireAuth, async (req: Request, res: Response) => {
     try {
       const { requestType, departmentId } = req.query;
       let workflowConfigs;
@@ -1610,6 +1624,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(workflowConfig);
     } catch (error: any) {
       console.error("Update workflow config error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/workflows/:id", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const user = await getCurrentUser(req);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+      const workflowId = req.params.id;
+      
+      // Get workflow for audit logging
+      const workflow = await storage.getWorkflowConfigById(workflowId);
+      if (!workflow) {
+        return res.status(404).json({ message: "Workflow not found" });
+      }
+
+      // Delete the workflow
+      await storage.deleteWorkflowConfig(workflowId);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: 'delete_workflow_config',
+        resourceType: 'workflow_config',
+        resourceId: workflowId,
+        details: { 
+          requestType: workflow.requestType,
+          stagesCount: workflow.stages ? (workflow.stages as any[]).length : 0
+        },
+        ipAddress: req.ip || null,
+      });
+
+      res.json({ message: "Workflow deleted successfully" });
+    } catch (error: any) {
+      console.error("Delete workflow config error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

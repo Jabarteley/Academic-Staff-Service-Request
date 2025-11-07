@@ -285,7 +285,9 @@ export interface IStorage {
   // Workflow Configs
   getWorkflowConfig(requestType: string, departmentId?: string): Promise<WorkflowConfig | undefined>;
   createWorkflowConfig(config: InsertWorkflowConfig): Promise<WorkflowConfig>;
+  getWorkflowConfigById(id: string): Promise<WorkflowConfig | undefined>;
   updateWorkflowConfig(id: string, data: Partial<WorkflowConfig>): Promise<WorkflowConfig | undefined>;
+  deleteWorkflowConfig(id: string): Promise<void>;
   getAllWorkflowConfigs(): Promise<WorkflowConfig[]>;
 
   // Audit Logs
