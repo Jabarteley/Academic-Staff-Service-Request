@@ -154,7 +154,7 @@ export default function Departments() {
             }
           }}
         >
-          <DialogTrigger asChild>
+          <DialogTrigger asChild onClick={() => setIsDialogOpen(true)}>
             <Button data-testid="button-new-department">
               <Plus className="mr-2 h-4 w-4" />
               New Department

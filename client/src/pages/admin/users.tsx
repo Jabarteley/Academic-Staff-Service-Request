@@ -147,7 +147,7 @@ export default function Users() {
   });
 
   const form = useForm({
-    resolver: zodResolver(editingUser ? updateUserSchema : deanUserSchema),
+    resolver: editingUser ? zodResolver(updateUserSchema) : zodResolver(deanUserSchema),
     defaultValues: {
       staffNumber: "",
       email: "",
@@ -156,17 +156,23 @@ export default function Users() {
       departmentId: "",
       role: "",
       facultyId: "",
-      password: "",
+      password: editingUser ? undefined : "", // Don't set password for editing
       status: "active",
     },
   });
 
   useEffect(() => {
     if (editingUser) {
+      // For editing, don't include password field in form data
       form.reset({
-        ...editingUser,
+        staffNumber: editingUser.staffNumber,
+        email: editingUser.email,
+        fullName: editingUser.fullName,
+        phone: editingUser.phone || "",
         departmentId: editingUser.departmentId || "",
+        role: editingUser.role,
         facultyId: editingUser.facultyId || "",
+        status: editingUser.status,
       });
     } else {
       form.reset({
@@ -227,9 +233,36 @@ export default function Users() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest("DELETE", `/api/admin/users/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "User deleted",
+        description: "User has been deleted successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
+        variant: "destructive",
+      });
+    },
+  });
+
   const onSubmit = (data: any) => {
     if (editingUser) {
-      updateMutation.mutate(data);
+      // Remove password from update data if it's empty (user doesn't want to change password)
+      const { password, ...updateData } = data;
+      if (!password || password.trim() === '') {
+        updateMutation.mutate(updateData);
+      } else {
+        // If password is provided, it means user wants to change it
+        updateMutation.mutate(data);
+      }
     } else {
       createMutation.mutate(data);
     }
@@ -519,9 +552,23 @@ export default function Users() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm" onClick={() => setEditingUser(user)}>
-                        Edit
-                      </Button>
+                      <div className="flex space-x-2">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingUser(user)}>
+                          Edit
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => {
+                            if (window.confirm(`Are you sure you want to delete user ${user.fullName}?`)) {
+                              deleteMutation.mutate(user.id);
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

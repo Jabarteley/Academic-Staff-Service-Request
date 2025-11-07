@@ -1209,6 +1209,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await getCurrentUser(req);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
+      // Normalize empty strings to undefined
+      if (req.body.facultyId === "") {
+        req.body.facultyId = undefined;
+      }
+      
       // Validate that the facultyId exists if provided
       if (req.body.facultyId) {
         const faculty = await storage.getFaculty(req.body.facultyId);
@@ -1240,6 +1245,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(401).json({ message: "Unauthorized" });
 
       const { id } = req.params;
+      
+      // Normalize empty strings to undefined
+      if (req.body.facultyId === "") {
+        req.body.facultyId = undefined;
+      }
       
       // Validate that the facultyId exists if provided
       if (req.body.facultyId) {
@@ -1381,7 +1391,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.params.id;
       const userData = req.body;
 
-      const updatedUser = await storage.updateUser(userId, userData);
+      // Don't update password if not provided or if it's an empty string
+      const { password, ...updateData } = userData;
+      if (!password || password.trim() === '') {
+        delete updateData.password;
+      } else {
+        // Hash the new password
+        updateData.password = await bcrypt.hash(password, 10);
+      }
+      
+      // Clean up all empty strings that should be undefined/null
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] === "") {
+          updateData[key] = undefined;
+        }
+      });
+
+      const updatedUser = await storage.updateUser(userId, updateData);
+
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
 
       await storage.createAuditLog({
         userId: currentUser.id,
@@ -1395,6 +1425,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error: any) {
       console.error("Update user error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireAuth, requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await getCurrentUser(req);
+      if (!currentUser) return res.status(401).json({ message: "Unauthorized" });
+
+      const userId = req.params.id;
+
+      // Don't allow deleting the current user
+      if (userId === currentUser.id) {
+        return res.status(400).json({ message: "Cannot delete your own account" });
+      }
+
+      // Delete the user
+      const deletedUser = await storage.deleteUser(userId);
+
+      if (!deletedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      await storage.createAuditLog({
+        userId: currentUser.id,
+        action: 'delete_user',
+        resourceType: 'user',
+        resourceId: userId,
+        details: { deletedUserEmail: deletedUser.email },
+        ipAddress: req.ip || null,
+      });
+
+      res.json({ message: "User deleted successfully" });
+    } catch (error: any) {
+      console.error("Delete user error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

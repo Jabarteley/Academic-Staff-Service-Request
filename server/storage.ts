@@ -145,6 +145,12 @@ export class MongoStorage implements IStorage {
     });
   }
 
+  async deleteUser(id: string): Promise<UserType | undefined> {
+    const deletedUser = await User.findByIdAndDelete(id).lean();
+    if (!deletedUser) return undefined;
+    return { ...deletedUser, id: deletedUser._id.toString() } as unknown as UserType;
+  }
+
   // Departments
   async getDepartment(id: string): Promise<DepartmentType | undefined> {
     const dept = await Department.findById(id).lean();

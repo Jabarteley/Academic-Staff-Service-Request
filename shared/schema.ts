@@ -244,6 +244,7 @@ export interface IStorage {
   getUserByPasswordResetToken(token: string): Promise<User | undefined>;
   setPasswordResetToken(userId: string, token: string, expires: Date): Promise<void>;
   clearPasswordResetToken(userId: string): Promise<void>;
+  deleteUser(id: string): Promise<User | undefined>;
 
   // Departments
   getDepartment(id: string): Promise<Department | undefined>;
