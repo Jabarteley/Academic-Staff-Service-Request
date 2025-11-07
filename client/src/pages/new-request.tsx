@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +67,7 @@ export default function NewRequest() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [requestType, setRequestType] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [items, setItems] = useState<Array<{ name: string; qty: number; cost: string }>>([
@@ -96,7 +98,7 @@ export default function NewRequest() {
       title: "",
       description: "",
       priority: "normal",
-      departmentId: "",
+      departmentId: user?.departmentId || "",  // Use user's department by default
       leaveType: "",
       startDate: "",
       endDate: "",
@@ -251,37 +253,50 @@ export default function NewRequest() {
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="departmentId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department *</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-department">
-                          <SelectValue placeholder="Select your department" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {departments?.map((dept) => (
-                          <SelectItem 
-                            key={dept.id} 
-                            value={dept.id}
-                            data-testid={`department-option-${dept.id}`}
-                          >
-                            {dept.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Only show department selection for users without a department or for admins */}
+              {!user?.departmentId || (user?.role === 'sys_admin') ? (
+                <FormField
+                  control={form.control}
+                  name="departmentId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Department *</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-department">
+                            <SelectValue placeholder="Select your department" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {departments?.map((dept) => (
+                            <SelectItem 
+                              key={dept.id} 
+                              value={dept.id}
+                              data-testid={`department-option-${dept.id}`}
+                            >
+                              {dept.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                // For users with a department, show the department as read-only info and prefill the field
+                <>
+                  <div className="mb-4 p-3 bg-muted rounded-md">
+                    <p className="text-sm text-muted-foreground">
+                      Request will be submitted under your assigned department: <span className="font-medium">{departments?.find(d => d.id === user.departmentId)?.name}</span>
+                    </p>
+                  </div>
+                  <input type="hidden" {...form.register('departmentId')} value={user.departmentId} />
+                </>
+              )}
 
               <FormField
                 control={form.control}

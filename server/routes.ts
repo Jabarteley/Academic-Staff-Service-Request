@@ -1312,8 +1312,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Hash password
       const hashedPassword = await bcrypt.hash(req.body.password, 10);
 
+      // Clean up empty strings in the request body before processing
+      let cleanedBody = { ...req.body };
+      Object.keys(cleanedBody).forEach(key => {
+        if (cleanedBody[key] === "") {
+          cleanedBody[key] = undefined;
+        }
+      });
+
       let userData = {
-        ...req.body,
+        ...cleanedBody,
         password: hashedPassword,
       };
 
@@ -1379,7 +1387,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password: _, ...userWithoutPassword } = newUser;
       res.status(201).json(userWithoutPassword);
     } catch (error: any) {
-      res.status(500).json({ message: "Internal server error" });
+      console.error("Create user error:", error);
+      res.status(500).json({ message: "Internal server error", details: error.message });
     }
   });
 
